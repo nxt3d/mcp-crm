@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "A simple MCP server for CRM functionality with TypeScript",
   "type": "module",
-  "main": "./build/index.js",
+  "main": "./build/crm-server.js",
   "bin": {
-    "crm-mcp-server": "./build/index.js"
+    "mcp-crm": "./build/crm-server.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -21,6 +21,10 @@
     "db:list": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js list",
     "db:stats": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js stats",
     "db:help": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js",
+    "db:list-entries": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js list-entries",
+    "db:view-entry": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js view-entry",
+    "db:delete-entry": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js delete-entry",
+    "db:update-entry": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js update-entry",
     "test:db": "cd tests && npx tsc && node build/scenarios/database-management.test.js",
     "test:comprehensive": "cd tests && npx tsx run-comprehensive-tests.ts",
     "test:all": "npm run test:comprehensive"

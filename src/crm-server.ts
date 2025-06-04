@@ -40,6 +40,8 @@ interface Contact {
   job_title: string | null;
   email: string | null;
   phone: string | null;
+  telegram: string | null;
+  x_account: string | null;
   notes: string | null;
   is_archived: boolean;
   created_at: string;
@@ -75,6 +77,8 @@ class CRMDatabase {
           job_title TEXT,
           email TEXT,
           phone TEXT,
+          telegram TEXT,
+          x_account TEXT,
           notes TEXT,
           is_archived BOOLEAN DEFAULT 0,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -86,28 +90,92 @@ class CRMDatabase {
           return;
         }
 
-        // Create contact_entries table
-        this.db.run(`
-          CREATE TABLE IF NOT EXISTS contact_entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contact_id INTEGER NOT NULL,
-            entry_type TEXT NOT NULL,
-            subject TEXT NOT NULL,
-            content TEXT,
-            entry_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (contact_id) REFERENCES contacts (id)
-          )
-        `, (err: any) => {
+        // Check if new columns exist and add them if they don't
+        this.db.get("PRAGMA table_info(contacts)", (err: any, tableInfo: any) => {
           if (err) {
             reject(err);
             return;
           }
 
-          console.error("✅ CRM database initialized with contacts and contact_entries tables");
-          resolve();
+          // Get existing column names
+          this.db.all("PRAGMA table_info(contacts)", (err: any, columns: any[]) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+
+            const existingColumns = columns.map(col => col.name);
+            const hasTelegram = existingColumns.includes('telegram');
+            const hasXAccount = existingColumns.includes('x_account');
+
+            let migrationsNeeded = 0;
+            let migrationsCompleted = 0;
+
+            const checkMigrationComplete = () => {
+              migrationsCompleted++;
+              if (migrationsCompleted === migrationsNeeded) {
+                // Create contact_entries table after migrations complete
+                this.createContactEntriesTable(resolve, reject);
+              }
+            };
+
+            // Add telegram column if it doesn't exist
+            if (!hasTelegram) {
+              migrationsNeeded++;
+              this.db.run(`ALTER TABLE contacts ADD COLUMN telegram TEXT`, (err: any) => {
+                if (err) {
+                  console.error("⚠️ Failed to add telegram column:", err.message);
+                } else {
+                  console.error("✅ Added telegram column to contacts table");
+                }
+                checkMigrationComplete();
+              });
+            }
+
+            // Add x_account column if it doesn't exist  
+            if (!hasXAccount) {
+              migrationsNeeded++;
+              this.db.run(`ALTER TABLE contacts ADD COLUMN x_account TEXT`, (err: any) => {
+                if (err) {
+                  console.error("⚠️ Failed to add x_account column:", err.message);
+                } else {
+                  console.error("✅ Added x_account column to contacts table");
+                }
+                checkMigrationComplete();
+              });
+            }
+
+            // If no migrations needed, proceed to create contact_entries table
+            if (migrationsNeeded === 0) {
+              this.createContactEntriesTable(resolve, reject);
+            }
+          });
         });
       });
+    });
+  }
+
+  private createContactEntriesTable(resolve: () => void, reject: (error: any) => void): void {
+    // Create contact_entries table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS contact_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contact_id INTEGER NOT NULL,
+        entry_type TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        content TEXT,
+        entry_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (contact_id) REFERENCES contacts (id)
+      )
+    `, (err: any) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      console.error("✅ CRM database initialized with contacts and contact_entries tables");
+      resolve();
     });
   }
 
@@ -118,18 +186,22 @@ class CRMDatabase {
     job_title?: string;
     email?: string;
     phone?: string;
+    telegram?: string;
+    x_account?: string;
     notes?: string;
   }): Promise<number> {
     return new Promise((resolve, reject) => {
       this.db.run(`
-        INSERT INTO contacts (name, organization, job_title, email, phone, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO contacts (name, organization, job_title, email, phone, telegram, x_account, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         data.name,
         data.organization || null,
         data.job_title || null,
         data.email || null,
         data.phone || null,
+        data.telegram || null,
+        data.x_account || null,
         data.notes || null
       ], function(err: any) {
         if (err) {
@@ -178,13 +250,15 @@ class CRMDatabase {
           name LIKE ? OR 
           organization LIKE ? OR 
           job_title LIKE ? OR 
-          email LIKE ?
+          email LIKE ? OR
+          telegram LIKE ? OR
+          x_account LIKE ?
         )
         ORDER BY name ASC
       `;
       const searchTerm = `%${query}%`;
       
-      this.db.all(searchQuery, [searchTerm, searchTerm, searchTerm, searchTerm], (err: any, rows: Contact[]) => {
+      this.db.all(searchQuery, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm], (err: any, rows: Contact[]) => {
         if (err) {
           reject(err);
         } else {
@@ -216,6 +290,8 @@ class CRMDatabase {
     job_title: string;
     email: string;
     phone: string;
+    telegram: string;
+    x_account: string;
     notes: string;
   }>): Promise<boolean> {
     return new Promise((resolve, reject) => {
@@ -319,10 +395,47 @@ class CRMDatabase {
     });
   }
 
+  async deleteContactEntry(entryId: number): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      this.db.run(`DELETE FROM contact_entries WHERE id = ?`, [entryId], function(err: any) {
+        if (err) {
+          reject(err);
+        } else {
+          // @ts-ignore - this.changes is available on the function context
+          resolve(this.changes > 0);
+        }
+      });
+    });
+  }
+
+  async updateContactEntry(entryId: number, data: Partial<{
+    entry_type: string;
+    subject: string;
+    content: string;
+  }>): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      const fields = Object.keys(data).map(key => `${key} = ?`).join(', ');
+      const values = [...Object.values(data), entryId];
+      
+      this.db.run(
+        `UPDATE contact_entries SET ${fields} WHERE id = ?`,
+        values,
+        function(err: any) {
+          if (err) {
+            reject(err);
+          } else {
+            // @ts-ignore - this.changes is available on the function context
+            resolve(this.changes > 0);
+          }
+        }
+      );
+    });
+  }
+
   async exportContacts(includeArchived: boolean = false): Promise<string> {
     const contacts = await this.listContacts(includeArchived);
     
-    const headers = ['ID', 'Name', 'Organization', 'Job Title', 'Email', 'Phone', 'Notes', 'Archived', 'Created', 'Updated'];
+    const headers = ['ID', 'Name', 'Organization', 'Job Title', 'Email', 'Phone', 'Telegram', 'X Account', 'Notes', 'Archived', 'Created', 'Updated'];
     const csvRows = [headers.join(',')];
     
     contacts.forEach(contact => {
@@ -333,6 +446,8 @@ class CRMDatabase {
         `"${(contact.job_title || '').replace(/"/g, '""')}"`,
         `"${(contact.email || '').replace(/"/g, '""')}"`,
         `"${(contact.phone || '').replace(/"/g, '""')}"`,
+        `"${(contact.telegram || '').replace(/"/g, '""')}"`,
+        `"${(contact.x_account || '').replace(/"/g, '""')}"`,
         `"${(contact.notes || '').replace(/"/g, '""')}"`,
         contact.is_archived ? 'Yes' : 'No',
         contact.created_at,
@@ -409,7 +524,7 @@ const database = new CRMDatabase(dbPath);
 
 // Create the MCP server
 const server = new McpServer({
-  name: "mcp-crm-server",
+  name: "mcp-crm",
   version: "1.0.0"
 });
 
@@ -422,9 +537,11 @@ server.tool(
     job_title: z.string().optional().describe("Job title or position"),
     email: z.string().optional().describe("Email address"),
     phone: z.string().optional().describe("Phone number"),
+    telegram: z.string().optional().describe("Telegram username or handle"),
+    x_account: z.string().optional().describe("X (Twitter) username or handle"),
     notes: z.string().optional().describe("Additional notes about the contact")
   },
-  async ({ name, organization, job_title, email, phone, notes }) => {
+  async ({ name, organization, job_title, email, phone, telegram, x_account, notes }) => {
     try {
       const contactId = await database.addContact({
         name,
@@ -432,6 +549,8 @@ server.tool(
         job_title,
         email,
         phone,
+        telegram,
+        x_account,
         notes
       });
       
@@ -550,7 +669,7 @@ server.tool(
 server.tool(
   "search_contacts",
   {
-    query: z.string().describe("Search query to match against name, organization, job title, or email")
+    query: z.string().describe("Search query to match against name, organization, job title, email, telegram, or x_account")
   },
   async ({ query }) => {
     try {
@@ -713,9 +832,11 @@ server.tool(
     job_title: z.string().optional().describe("Updated job title or position"),
     email: z.string().optional().describe("Updated email address"),
     phone: z.string().optional().describe("Updated phone number"),
+    telegram: z.string().optional().describe("Updated Telegram username or handle"),
+    x_account: z.string().optional().describe("Updated X (Twitter) username or handle"),
     notes: z.string().optional().describe("Updated notes about the contact")
   },
-  async ({ id, name, organization, job_title, email, phone, notes }) => {
+  async ({ id, name, organization, job_title, email, phone, telegram, x_account, notes }) => {
     try {
       const contact = await database.getContactById(id);
       if (!contact) {
@@ -735,6 +856,8 @@ server.tool(
       if (job_title !== undefined) updateData.job_title = job_title;
       if (email !== undefined) updateData.email = email;
       if (phone !== undefined) updateData.phone = phone;
+      if (telegram !== undefined) updateData.telegram = telegram;
+      if (x_account !== undefined) updateData.x_account = x_account;
       if (notes !== undefined) updateData.notes = notes;
 
       if (Object.keys(updateData).length === 0) {
@@ -834,7 +957,84 @@ server.tool(
   }
 );
 
-// TOOL 9: Get Contact History
+// TOOL 9: Update Contact Entry
+server.tool(
+  "update_contact_entry",
+  {
+    entry_id: z.number().describe("Contact entry ID to update"),
+    entry_type: z.enum(['call', 'email', 'meeting', 'note', 'task']).optional().describe("Updated type of interaction"),
+    subject: z.string().optional().describe("Updated subject/title of the entry"),
+    content: z.string().optional().describe("Updated detailed content of the entry")
+  },
+  async ({ entry_id, entry_type, subject, content }) => {
+    try {
+      // First get the entry to check if it exists and get contact info
+      const history = await database.getContactHistory(1); // Get all entries
+      const allHistory = await database.getRecentActivities(1000); // Get more entries to find this one
+      const entry = allHistory.find(e => e.id === entry_id);
+      
+      if (!entry) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ Contact entry with ID ${entry_id} not found`
+            }
+          ]
+        };
+      }
+
+      const updateData: any = {};
+      if (entry_type !== undefined) updateData.entry_type = entry_type;
+      if (subject !== undefined) updateData.subject = subject;
+      if (content !== undefined) updateData.content = content;
+
+      if (Object.keys(updateData).length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `ℹ️ No fields provided to update for entry ID ${entry_id}`
+            }
+          ]
+        };
+      }
+
+      const success = await database.updateContactEntry(entry_id, updateData);
+      
+      if (success) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `✅ Successfully updated contact entry for "${entry.contact_name}" (Entry ID: ${entry_id})\n\nUpdated fields: ${Object.keys(updateData).join(', ')}`
+            }
+          ]
+        };
+      } else {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ Failed to update contact entry with ID ${entry_id}`
+            }
+          ]
+        };
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Failed to update contact entry: ${error instanceof Error ? error.message : String(error)}`
+          }
+        ]
+      };
+    }
+  }
+);
+
+// TOOL 10: Get Contact History
 server.tool(
   "get_contact_history",
   {
@@ -893,7 +1093,7 @@ server.tool(
   }
 );
 
-// TOOL 10: Get Recent Activities
+// TOOL 11: Get Recent Activities
 server.tool(
   "get_recent_activities",
   {
@@ -939,7 +1139,7 @@ server.tool(
   }
 );
 
-// TOOL 11: Export Contacts CSV
+// TOOL 12: Export Contacts CSV
 server.tool(
   "export_contacts_csv",
   {
@@ -971,7 +1171,7 @@ server.tool(
   }
 );
 
-// TOOL 12: Export Contact History CSV
+// TOOL 13: Export Contact History CSV
 server.tool(
   "export_contact_history_csv",
   {
@@ -1019,7 +1219,7 @@ server.tool(
   }
 );
 
-// TOOL 13: Export Full CRM CSV
+// TOOL 14: Export Full CRM CSV
 server.tool(
   "export_full_crm_csv",
   {},

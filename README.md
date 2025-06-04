@@ -4,10 +4,11 @@ A production-ready **Model Context Protocol (MCP) server** for Customer Relation
 
 ## 🚀 Features
 
-### Core CRM Tools (13 Total)
+### Core CRM Tools (14 Total)
 - **Contact Management**: Add, update, search, list, and archive contacts
 - **Organization Management**: Filter contacts by organization
-- **Contact History**: Track interactions, calls, emails, meetings, and notes
+- **Contact History**: Track, update, and manage interactions, calls, emails, meetings, and notes
+- **Entry Management**: Full CRUD operations on contact history entries
 - **Data Export**: CSV exports for contacts, history, and full CRM data
 - **Recent Activities**: Track and retrieve recent CRM activities
 
@@ -18,6 +19,7 @@ A production-ready **Model Context Protocol (MCP) server** for Customer Relation
 - ✅ **Security Focused** - SQL injection protection and input sanitization
 - ✅ **Edge Case Handling** - Thoroughly tested boundary conditions
 - ✅ **Database Management** - Safe archive/restore system with zero data loss
+- ✅ **Entry Management** - Complete contact history CRUD with database scripts
 - ✅ **Modular Testing** - Isolated test phases with automatic state management
 
 ## 📦 Installation
@@ -50,7 +52,7 @@ Add to your `.cursor/mcp.json` or MCP client configuration:
 ```json
 {
   "mcpServers": {
-    "mcp-crm-server": {
+    "mcp-crm": {
       "command": "node",
       "args": ["./build/crm-server.js"],
       "cwd": "/path/to/mcp-crm"
@@ -83,6 +85,14 @@ npm run db:list
 
 # Show current database statistics
 npm run db:stats
+
+# Contact entry management
+npm run db:list-entries        # List all contact entries
+npm run db:list-entries 1      # List entries for contact ID 1
+npm run db:list-entries "" 10  # List 10 most recent entries (all contacts)
+npm run db:view-entry 1        # View detailed entry
+npm run db:delete-entry 1      # Delete entry by ID
+npm run db:update-entry 1 content "Updated content"  # Update entry field
 
 # Show help for database commands
 npm run db:help
@@ -171,6 +181,51 @@ Entries: 1,234
 Size: 45.32 KB
 ```
 
+### Contact Entry Management
+**Manage contact history entries with full CRUD operations.**
+
+```bash
+# List contact entries
+npm run db:list-entries                    # All entries (newest first)
+npm run db:list-entries 1                  # All entries for contact 1
+npm run db:list-entries "" 10              # 10 most recent entries (all contacts)
+npm run db:list-entries 1 5                # 5 most recent entries for contact 1
+
+# View detailed entry
+npm run db:view-entry 2                    # View entry ID 2 with full content
+
+# Update entry
+npm run db:update-entry 2 content "New content here"     # Update content
+npm run db:update-entry 2 subject "New subject"          # Update subject
+npm run db:update-entry 2 entry_type note               # Update type
+
+# Delete entry
+npm run db:delete-entry 2                  # Delete entry ID 2 (with confirmation)
+```
+
+**Entry fields you can update:**
+- `entry_type`: call, email, meeting, note, task
+- `subject`: Brief title/subject of the entry
+- `content`: Detailed content of the entry
+
+**Example entry list output:**
+```
+📝 Contact Entries
+   Showing 3 most recent entries (limited to 10)
+================================================================================
+Entry #5 (Jane Smith)
+  Type: CALL
+  Subject: Follow-up discussion
+  Date: 2025-06-04 15:30:00
+  Content: Discussed project requirements and timeline. Next meeting scheduled...
+
+Entry #4 (John Doe)
+  Type: EMAIL
+  Subject: Proposal sent
+  Date: 2025-06-04 14:15:00
+  Content: Sent project proposal via email. Awaiting feedback by Friday...
+```
+
 ### Archive Structure
 
 Archives are stored in `data/archives/` with descriptive names:
@@ -203,7 +258,8 @@ Archives are stored in `data/archives/` with descriptive names:
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `add_contact_entry` | Add interaction history entry | `contact_id`, `entry_type` (call/email/meeting/note/task), `subject`, `content` |
-| `get_contact_history` | Get all history for a contact | `contact_id` (required) |
+| `update_contact_entry` | Update existing contact entry | `entry_id` (required), optional: `entry_type`, `subject`, `content` |
+| `get_contact_history` | Get all history for a contact | `contact_id` (required), `limit` (optional) |
 | `get_recent_activities` | Get recent CRM activities | `limit` (optional, default: 10) |
 
 ### Data Export
@@ -250,6 +306,18 @@ Archives are stored in `data/archives/` with descriptive names:
     "entry_type": "call",
     "subject": "Discovery Call",
     "content": "Discussed requirements and pricing. Follow up in 1 week."
+  }
+}
+```
+
+### Updating Contact History
+```typescript
+{
+  "name": "update_contact_entry",
+  "arguments": {
+    "entry_id": 2,
+    "subject": "Updated Discovery Call",
+    "content": "Discussed requirements and pricing. Client requested additional features. Follow up scheduled for next Tuesday."
   }
 }
 ```
@@ -337,6 +405,12 @@ npm run db:archive  # Archive current database
 npm run db:list     # List archived databases
 npm run db:stats    # Show database statistics
 npm run db:help     # Database management help
+
+# Contact entry management
+npm run db:list-entries     # List contact entries (with optional contact_id and limit)
+npm run db:view-entry       # View detailed contact entry by ID
+npm run db:delete-entry     # Delete contact entry by ID
+npm run db:update-entry     # Update contact entry by ID
 
 # Testing
 npm run test:db     # Run database management tests

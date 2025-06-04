@@ -103,6 +103,8 @@ class ExportFunctionalityTests {
         job_title: "Data Manager",
         email: "export1@exportcorp.com",
         phone: "+1-555-0301",
+        telegram: "@export_user1",
+        x_account: "@ExportUser1",
         notes: "Test contact for export validation"
       },
       {
@@ -111,6 +113,8 @@ class ExportFunctionalityTests {
         job_title: "Analytics Lead",
         email: "export2@exportcorp.com",
         phone: "+1-555-0302",
+        telegram: "@export_user2",
+        x_account: "@ExportUser2",
         notes: "Second test contact for export validation"
       }
     ];
@@ -176,12 +180,17 @@ class ExportFunctionalityTests {
       const activeResponseText = activeResult.content[0].text;
       const activeCsvContent = this.extractCsvContent(activeResponseText);
       const activeValidCsv = TestValidator.validateCSVContent(activeCsvContent);
-      const activeHasHeaders = activeCsvContent.includes("ID,Name,Organization");
+      const activeHasHeaders = activeCsvContent.includes("ID,Name,Organization") && 
+                              activeCsvContent.includes("Telegram") && 
+                              activeCsvContent.includes("X Account");
       const activeHasTestData = activeCsvContent.includes("ExportCorp");
+      const activeHasNewFieldData = activeCsvContent.includes("@export_user1") && 
+                                   activeCsvContent.includes("@ExportUser1");
 
       console.log(`  📄 Active contacts CSV: ${activeValidCsv ? 'Valid' : 'Invalid'}`);
-      console.log(`  📄 Headers present: ${activeHasHeaders ? 'Yes' : 'No'}`);
+      console.log(`  📄 Headers present (incl. new fields): ${activeHasHeaders ? 'Yes' : 'No'}`);
       console.log(`  📄 Test data present: ${activeHasTestData ? 'Yes' : 'No'}`);
+      console.log(`  📄 New field data present: ${activeHasNewFieldData ? 'Yes' : 'No'}`);
 
       // Test with archived contacts
       const { result: archivedResult, duration: archivedDuration } = await this.callTool("export_contacts_csv", {
@@ -191,13 +200,16 @@ class ExportFunctionalityTests {
       const archivedResponseText = archivedResult.content[0].text;
       const archivedCsvContent = this.extractCsvContent(archivedResponseText);
       const archivedValidCsv = TestValidator.validateCSVContent(archivedCsvContent);
-      const archivedHasHeaders = archivedCsvContent.includes("ID,Name,Organization");
+      const archivedHasHeaders = archivedCsvContent.includes("ID,Name,Organization") && 
+                                archivedCsvContent.includes("Telegram") && 
+                                archivedCsvContent.includes("X Account");
 
       console.log(`  📄 All contacts CSV (with archived): ${archivedValidCsv ? 'Valid' : 'Invalid'}`);
 
       this.reporter.addResult({
         testName: "Export Contacts CSV",
-        success: activeValidCsv && activeHasHeaders && activeHasTestData && archivedValidCsv && archivedHasHeaders,
+        success: activeValidCsv && activeHasHeaders && activeHasTestData && activeHasNewFieldData && 
+                archivedValidCsv && archivedHasHeaders,
         duration: activeDuration + archivedDuration,
         timestamp,
         data: { 
@@ -206,6 +218,7 @@ class ExportFunctionalityTests {
           activeHasHeaders: activeHasHeaders,
           archivedHasHeaders: archivedHasHeaders,
           testDataPresent: activeHasTestData,
+          newFieldDataPresent: activeHasNewFieldData,
           activeCsvLength: activeCsvContent.length,
           archivedCsvLength: archivedCsvContent.length
         }
@@ -300,16 +313,20 @@ class ExportFunctionalityTests {
       const validCsv = TestValidator.validateCSVContent(csvContent);
       const hasContactsSection = csvContent.includes("=== CONTACTS ===");
       const hasHistorySection = csvContent.includes("=== CONTACT HISTORY ===");
-      const hasContactHeaders = csvContent.includes("ID,Name,Organization");
+      const hasContactHeaders = csvContent.includes("ID,Name,Organization") && 
+                              csvContent.includes("Telegram") && 
+                              csvContent.includes("X Account");
       const hasHistoryHeaders = csvContent.includes("Entry ID,Contact Name,Entry Type");
       const hasTestData = csvContent.includes("ExportCorp") && csvContent.includes("Export test");
+      const hasNewFieldData = csvContent.includes("@export_user1") && csvContent.includes("@ExportUser1");
 
       console.log(`  📄 Full CRM CSV: ${validCsv ? 'Valid' : 'Invalid'}`);
       console.log(`  📄 Contacts section: ${hasContactsSection ? 'Present' : 'Missing'}`);
       console.log(`  📄 History section: ${hasHistorySection ? 'Present' : 'Missing'}`);
-      console.log(`  📄 Contact headers: ${hasContactHeaders ? 'Present' : 'Missing'}`);
+      console.log(`  📄 Contact headers (incl. new fields): ${hasContactHeaders ? 'Present' : 'Missing'}`);
       console.log(`  📄 History headers: ${hasHistoryHeaders ? 'Present' : 'Missing'}`);
       console.log(`  📄 Test data: ${hasTestData ? 'Present' : 'Missing'}`);
+      console.log(`  📄 New field data: ${hasNewFieldData ? 'Present' : 'Missing'}`);
 
       // Verify both sections have data
       const contactsSection = csvContent.split("=== CONTACT HISTORY ===")[0];
@@ -323,7 +340,7 @@ class ExportFunctionalityTests {
       this.reporter.addResult({
         testName: "Export Full CRM CSV",
         success: validCsv && hasContactsSection && hasHistorySection && hasContactHeaders && 
-                hasHistoryHeaders && hasTestData && contactsHasData && historyHasData,
+                hasHistoryHeaders && hasTestData && hasNewFieldData && contactsHasData && historyHasData,
         duration,
         timestamp,
         data: { 
@@ -333,6 +350,7 @@ class ExportFunctionalityTests {
           hasContactHeaders,
           hasHistoryHeaders,
           hasTestData,
+          hasNewFieldData,
           contactsHasData,
           historyHasData,
           csvLength: csvContent.length,

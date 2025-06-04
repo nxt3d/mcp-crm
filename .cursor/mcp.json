@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "mcp-crm-server": {
+    "mcp-crm": {
       "command": "node",
       "args": ["./build/crm-server.js"],
       "cwd": "/Users/nxt3d/projects/mcp-crm"

@@ -259,6 +259,237 @@ class DatabaseManager {
       throw error;
     }
   }
+
+  /**
+   * List contact entries with optional contact ID filter
+   */
+  async listContactEntries(contactId?: number, limit?: number): Promise<void> {
+    if (!fs.existsSync(this.dbPath)) {
+      console.log("📭 No database found");
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const db = new Database(this.dbPath);
+      
+      let query = contactId 
+        ? `SELECT ce.*, c.name as contact_name FROM contact_entries ce 
+           JOIN contacts c ON ce.contact_id = c.id 
+           WHERE ce.contact_id = ? ORDER BY ce.entry_date DESC`
+        : `SELECT ce.*, c.name as contact_name FROM contact_entries ce 
+           JOIN contacts c ON ce.contact_id = c.id 
+           ORDER BY ce.entry_date DESC`;
+      
+      let params: any[] = contactId ? [contactId] : [];
+      
+      if (limit) {
+        query += ` LIMIT ?`;
+        params.push(limit);
+      }
+      
+      db.all(query, params, (err: any, rows: any[]) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        if (rows.length === 0) {
+          console.log("📭 No contact entries found");
+          db.close();
+          resolve();
+          return;
+        }
+
+        console.log("📝 Contact Entries");
+        if (limit) {
+          console.log(`   Showing ${rows.length} most recent entries (limited to ${limit})`);
+        } else {
+          console.log(`   Showing all ${rows.length} entries`);
+        }
+        console.log("=" .repeat(80));
+
+        rows.forEach((entry, index) => {
+          console.log(`Entry #${entry.id} (${entry.contact_name})`);
+          console.log(`  Type: ${entry.entry_type.toUpperCase()}`);
+          console.log(`  Subject: ${entry.subject}`);
+          console.log(`  Date: ${entry.entry_date}`);
+          if (entry.content) {
+            console.log(`  Content: ${entry.content.substring(0, 100)}${entry.content.length > 100 ? '...' : ''}`);
+          }
+          if (index < rows.length - 1) console.log("");
+        });
+
+        db.close();
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Delete a contact entry by ID
+   */
+  async deleteContactEntry(entryId: number): Promise<void> {
+    if (!fs.existsSync(this.dbPath)) {
+      throw new Error("No database found");
+    }
+
+    return new Promise((resolve, reject) => {
+      const db = new Database(this.dbPath);
+      
+      // First get the entry details for confirmation
+      db.get("SELECT ce.*, c.name as contact_name FROM contact_entries ce JOIN contacts c ON ce.contact_id = c.id WHERE ce.id = ?", [entryId], (err: any, row: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        if (!row) {
+          console.log(`❌ Contact entry with ID ${entryId} not found`);
+          db.close();
+          resolve();
+          return;
+        }
+
+        console.log("🗑️ Deleting Contact Entry");
+        console.log("=" .repeat(50));
+        console.log(`Entry ID: ${row.id}`);
+        console.log(`Contact: ${row.contact_name}`);
+        console.log(`Type: ${row.entry_type.toUpperCase()}`);
+        console.log(`Subject: ${row.subject}`);
+        console.log(`Date: ${row.entry_date}`);
+
+        // Delete the entry
+        db.run("DELETE FROM contact_entries WHERE id = ?", [entryId], function(err: any) {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          // @ts-ignore - this.changes is available on the function context
+          if (this.changes > 0) {
+            console.log("✅ Contact entry deleted successfully!");
+          } else {
+            console.log("❌ No entry was deleted (entry may not exist)");
+          }
+
+          db.close();
+          resolve();
+        });
+      });
+    });
+  }
+
+  /**
+   * Show detailed view of a contact entry
+   */
+  async viewContactEntry(entryId: number): Promise<void> {
+    if (!fs.existsSync(this.dbPath)) {
+      console.log("📭 No database found");
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const db = new Database(this.dbPath);
+      
+      db.get("SELECT ce.*, c.name as contact_name FROM contact_entries ce JOIN contacts c ON ce.contact_id = c.id WHERE ce.id = ?", [entryId], (err: any, row: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        if (!row) {
+          console.log(`❌ Contact entry with ID ${entryId} not found`);
+          db.close();
+          resolve();
+          return;
+        }
+
+        console.log("📄 Contact Entry Details");
+        console.log("=" .repeat(50));
+        console.log(`Entry ID: ${row.id}`);
+        console.log(`Contact: ${row.contact_name} (ID: ${row.contact_id})`);
+        console.log(`Type: ${row.entry_type.toUpperCase()}`);
+        console.log(`Subject: ${row.subject}`);
+        console.log(`Entry Date: ${row.entry_date}`);
+        console.log(`Created: ${row.created_at}`);
+        console.log("");
+        console.log("Content:");
+        console.log(row.content || "(No content)");
+
+        db.close();
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Update a contact entry by ID
+   */
+  async updateContactEntry(entryId: number, updates: { entry_type?: string; subject?: string; content?: string }): Promise<void> {
+    if (!fs.existsSync(this.dbPath)) {
+      throw new Error("No database found");
+    }
+
+    return new Promise((resolve, reject) => {
+      const db = new Database(this.dbPath);
+      
+      // First get the entry details for confirmation
+      db.get("SELECT ce.*, c.name as contact_name FROM contact_entries ce JOIN contacts c ON ce.contact_id = c.id WHERE ce.id = ?", [entryId], (err: any, row: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        if (!row) {
+          console.log(`❌ Contact entry with ID ${entryId} not found`);
+          db.close();
+          resolve();
+          return;
+        }
+
+        console.log("✏️ Updating Contact Entry");
+        console.log("=" .repeat(50));
+        console.log(`Entry ID: ${row.id}`);
+        console.log(`Contact: ${row.contact_name}`);
+        console.log("");
+        console.log("Current values:");
+        console.log(`  Type: ${row.entry_type.toUpperCase()}`);
+        console.log(`  Subject: ${row.subject}`);
+        console.log(`  Content: ${row.content ? row.content.substring(0, 100) + (row.content.length > 100 ? '...' : '') : '(No content)'}`);
+        console.log("");
+
+        // Build update query
+        const fields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
+        const values = [...Object.values(updates), entryId];
+
+        if (Object.keys(updates).length === 0) {
+          console.log("❌ No updates provided");
+          db.close();
+          resolve();
+          return;
+        }
+
+        // Update the entry
+        db.run(`UPDATE contact_entries SET ${fields} WHERE id = ?`, values, function(err: any) {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          // @ts-ignore - this.changes is available on the function context
+          if (this.changes > 0) {
+            console.log("✅ Contact entry updated successfully!");
+            console.log("Updated fields:", Object.keys(updates).join(', '));
+          } else {
+            console.log("❌ No entry was updated (entry may not exist)");
+          }
+
+          db.close();
+          resolve();
+        });
+      });
+    });
+  }
 }
 
 // CLI Interface
@@ -302,16 +533,104 @@ async function main() {
           console.log("📭 No database found");
         }
         break;
+
+      case 'list-entries':
+        const contactId = process.argv[3] ? parseInt(process.argv[3]) : undefined;
+        const limit = process.argv[4] ? parseInt(process.argv[4]) : undefined;
+        
+        if (process.argv[3] && isNaN(contactId!)) {
+          console.error("❌ Contact ID must be a number");
+          process.exit(1);
+        }
+        
+        if (process.argv[4] && isNaN(limit!)) {
+          console.error("❌ Limit must be a number");
+          process.exit(1);
+        }
+        
+        await manager.listContactEntries(contactId, limit);
+        break;
+
+      case 'view-entry':
+        if (!arg) {
+          console.error("❌ Please specify an entry ID to view");
+          console.log("Use 'npm run db:list-entries' to see available entries");
+          process.exit(1);
+        }
+        const viewEntryId = parseInt(arg);
+        if (isNaN(viewEntryId)) {
+          console.error("❌ Entry ID must be a number");
+          process.exit(1);
+        }
+        await manager.viewContactEntry(viewEntryId);
+        break;
+
+      case 'delete-entry':
+        if (!arg) {
+          console.error("❌ Please specify an entry ID to delete");
+          console.log("Use 'npm run db:list-entries' to see available entries");
+          process.exit(1);
+        }
+        const deleteEntryId = parseInt(arg);
+        if (isNaN(deleteEntryId)) {
+          console.error("❌ Entry ID must be a number");
+          process.exit(1);
+        }
+        await manager.deleteContactEntry(deleteEntryId);
+        break;
+
+      case 'update-entry':
+        if (!arg) {
+          console.error("❌ Please specify an entry ID to update");
+          console.log("Use 'npm run db:list-entries' to see available entries");
+          console.log("Usage: npm run db:update-entry <entry_id> <field> <value>");
+          console.log("Fields: entry_type, subject, content");
+          process.exit(1);
+        }
+        
+        const updateEntryId = parseInt(arg);
+        if (isNaN(updateEntryId)) {
+          console.error("❌ Entry ID must be a number");
+          process.exit(1);
+        }
+
+        const field = process.argv[4];
+        const value = process.argv.slice(5).join(' '); // Join remaining args for content
+        
+        if (!field || !value) {
+          console.error("❌ Please specify field and value to update");
+          console.log("Usage: npm run db:update-entry <entry_id> <field> <value>");
+          console.log("Fields: entry_type, subject, content");
+          process.exit(1);
+        }
+
+        if (!['entry_type', 'subject', 'content'].includes(field)) {
+          console.error("❌ Invalid field. Must be one of: entry_type, subject, content");
+          process.exit(1);
+        }
+
+        const updates: any = {};
+        updates[field] = value;
+        await manager.updateContactEntry(updateEntryId, updates);
+        break;
         
       default:
         console.log("🗄️ CRM Database Manager");
         console.log("=" .repeat(50));
         console.log("Available commands:");
+        console.log("");
+        console.log("Database Management:");
         console.log("  reset [reason]    - Archive current DB and create fresh empty DB");
         console.log("  archive [reason]  - Archive current DB (keep current DB)");
         console.log("  list             - List all archived databases");
         console.log("  restore <name>   - Restore from an archived database");
         console.log("  stats            - Show current database statistics");
+        console.log("");
+        console.log("Contact Entry Management:");
+        console.log("  list-entries [contact_id] [limit] - List contact entries (optionally filtered by contact, with optional limit)");
+        console.log("  view-entry <entry_id>             - View detailed contact entry");
+        console.log("  delete-entry <entry_id>           - Delete a contact entry");
+        console.log("  update-entry <entry_id> <field> <value> - Update a contact entry");
         console.log("");
         console.log("Examples:");
         console.log("  npm run db:reset");
@@ -320,6 +639,13 @@ async function main() {
         console.log("  npm run db:list");
         console.log("  npm run db:restore crm-backup-2025-06-04T19-15-35.sqlite");
         console.log("  npm run db:stats");
+        console.log("  npm run db:list-entries");
+        console.log("  npm run db:list-entries 1");
+        console.log("  npm run db:list-entries \"\" 10     # List 10 most recent entries (all contacts)");
+        console.log("  npm run db:list-entries 1 5       # List 5 most recent entries for contact 1");
+        console.log("  npm run db:view-entry 1");
+        console.log("  npm run db:delete-entry 1");
+        console.log("  npm run db:update-entry 1 entry_type note");
         break;
     }
   } catch (error) {

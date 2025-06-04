@@ -107,6 +107,8 @@ class ContactManagementTests {
         job_title: "Senior Software Engineer",
         email: "john.doe@techcorp.com",
         phone: "+1-555-0101",
+        telegram: "@johndoe_tech",
+        x_account: "@JohnDoe_Dev",
         notes: "Met at tech conference 2024"
       });
 
@@ -119,15 +121,19 @@ class ContactManagementTests {
         this.testContactIds.push(contactId);
       }
 
+      // Verify that the response includes the new fields
+      const hasNewFields = responseText.includes("telegram") && responseText.includes("x_account");
+
       this.reporter.addResult({
         testName: "Add Contact - Basic",
-        success: responseText.includes("Successfully added"),
+        success: responseText.includes("Successfully added") && hasNewFields,
         duration,
         timestamp,
-        data: { contactId, response: responseText }
+        data: { contactId, response: responseText, hasNewFields }
       });
 
       console.log(contactId ? `  ✅ Contact added with ID: ${contactId}` : "  ❌ Failed to extract contact ID");
+      console.log(hasNewFields ? `  ✅ New fields (telegram, x_account) included` : "  ❌ New fields missing from response");
       
     } catch (error) {
       this.reporter.addResult({
@@ -151,20 +157,26 @@ class ContactManagementTests {
         organization: "StartupXYZ",
         job_title: "CTO",
         email: "alice@startupxyz.com",
-        phone: "+1-555-0102"
+        phone: "+1-555-0102",
+        telegram: "@alice_cto",
+        x_account: "@AliceSmithCTO"
       },
       {
         name: "Bob Johnson", 
         organization: "TechCorp Inc",
         job_title: "Product Manager",
         email: "bob.johnson@techcorp.com",
-        phone: "+1-555-0103"
+        phone: "+1-555-0103",
+        telegram: "@bob_pm",
+        x_account: "@BobJohnsonPM"
       },
       {
         name: "Carol Davis",
         organization: "InnovateCo",
         job_title: "CEO",
         email: "carol@innovateco.com",
+        telegram: "@carol_innovate",
+        x_account: "@CarolDavisCEO",
         notes: "Potential partnership opportunity"
       }
     ];
@@ -200,11 +212,11 @@ class ContactManagementTests {
       data: { 
         contactsAdded: successCount,
         totalContacts: testContacts.length,
-        contactIds: this.testContactIds
+        contactIds: this.testContactIds.slice(-successCount)
       }
     });
 
-    console.log(`  📊 Added ${successCount}/${testContacts.length} contacts successfully`);
+    console.log(`  📊 ${successCount}/${testContacts.length} contacts added successfully`);
   }
 
   // Test 3: List Contacts
@@ -295,6 +307,8 @@ class ContactManagementTests {
       { query: "TechCorp", expectedMin: 2, description: "organization search" },
       { query: "John", expectedMin: 1, description: "name search" },
       { query: "CTO", expectedMin: 1, description: "job title search" },
+      { query: "@alice_cto", expectedMin: 1, description: "telegram search" },
+      { query: "@JohnDoe_Dev", expectedMin: 1, description: "x_account search" },
       { query: "nonexistent", expectedMin: 0, description: "no results search" }
     ];
 
@@ -393,25 +407,32 @@ class ContactManagementTests {
       const { result, duration, timestamp } = await this.callTool("update_contact", {
         id: testContactId,
         job_title: "Lead Software Engineer",
+        telegram: "@johndoe_lead",
+        x_account: "@JohnDoe_Lead",
         notes: "Updated during testing - promoted to lead role"
       });
       
       const responseText = result.content[0].text;
       const success = responseText.includes("Successfully updated");
+      
+      // Verify that the response includes the new fields
+      const hasNewFields = responseText.includes("telegram") && responseText.includes("x_account");
 
       this.reporter.addResult({
         testName: "Update Contact",
-        success,
+        success: success && hasNewFields,
         duration,
         timestamp,
         data: { 
           contactId: testContactId,
-          fieldsUpdated: ["job_title", "notes"],
-          response: responseText
+          fieldsUpdated: ["job_title", "telegram", "x_account", "notes"],
+          response: responseText,
+          hasNewFields
         }
       });
 
       console.log(`  ✏️ Update contact ID ${testContactId}: ${success ? 'Success' : 'Failed'}`);
+      console.log(`  ✏️ New fields included in update: ${hasNewFields ? 'Yes' : 'No'}`);
       
     } catch (error) {
       this.reporter.addResult({
