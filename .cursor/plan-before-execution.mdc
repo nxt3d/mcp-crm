@@ -1,0 +1,20 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+For this request, I want you to work up a plan. Provide your findings on how you plan to solve the problem and a step-by-step list of tasks. I don't want you to start changing any existing files or writing any code yet. Instead, conduct any necessary research and define the solution or design you intend to use to complete the task. Once complete, return with a summary of the solution and a clear, step-by-step execution plan.
+
+Save the plan in a document with a relevant name, located appropriately near where the corresponding code will be written or updated. Also, create a second document—a progress file—that we will use to track the implementation of the plan as we build out the feature or solution.
+
+In summary:
+
+Create a detailed plan with your findings and steps.
+
+Save the plan in a clearly named document, in a relevant directory.
+
+Create a second document for tracking progress.
+
+Report back with a summary of the solution and the names/locations of both documents.
+
+Don't forget to save the plan and progress docs! 

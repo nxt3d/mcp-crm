@@ -1,0 +1,43 @@
+{
+  "name": "mcp-crm",
+  "version": "1.0.0",
+  "description": "A simple MCP server for CRM functionality with TypeScript",
+  "type": "module",
+  "main": "./build/index.js",
+  "bin": {
+    "crm-mcp-server": "./build/index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "npm run build && node ./build/index.js",
+    "dev": "npm run watch",
+    "clean": "rm -rf build",
+    "build:crm": "tsc && chmod +x build/crm-server.js",
+    "start:crm": "node ./build/crm-server.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "crm",
+    "typescript",
+    "sqlite",
+    "server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "sqlite3": "^5.1.6",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/sqlite3": "^3.1.8",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "build"
+  ]
+}
