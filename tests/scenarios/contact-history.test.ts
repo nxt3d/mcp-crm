@@ -2,7 +2,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { TestReporter, TestResult } from "../client/test-utilities.js";
+import { TestReporter, TestResult, TestDataGenerator, TestValidator, TestDatabaseManager } from "../client/test-utilities.js";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
@@ -13,8 +13,8 @@ class ContactHistoryTests {
   private client: Client;
   private transport?: StdioClientTransport;
   private reporter: TestReporter;
-  private testContactId: number | null = null;
-  private testEntryIds: number[] = [];
+  private testContactIds: number[] = [];
+  private dbManager: TestDatabaseManager;
 
   constructor() {
     this.client = new Client({
@@ -22,6 +22,7 @@ class ContactHistoryTests {
       version: "1.0.0"
     });
     this.reporter = new TestReporter();
+    this.dbManager = new TestDatabaseManager("contact-history");
   }
 
   async runAllTests(): Promise<void> {
@@ -31,15 +32,19 @@ class ContactHistoryTests {
     this.reporter.startReport();
 
     try {
-      // Setup
-      await this.connect();
-      await this.setupTestContact();
+      // Setup test database
+      const testDbPath = await this.dbManager.setupTestDatabase();
       
-      // B2: Contact History Tools (3 tools)
+      // Setup
+      await this.connect(testDbPath);
+      
+      // B2: Contact History Tests
+      await this.setupTestContacts();
       await this.testAddContactEntry();
-      await this.testAddMultipleEntries();
       await this.testGetContactHistory();
       await this.testGetRecentActivities();
+      await this.testMultipleEntryTypes();
+      await this.testHistoryPagination();
       
       // Cleanup
       await this.disconnect();
@@ -47,6 +52,9 @@ class ContactHistoryTests {
     } catch (error) {
       console.error("💥 Test suite failed:", error);
       throw error;
+    } finally {
+      // Always cleanup test database
+      await this.dbManager.cleanupTestDatabase();
     }
 
     // Generate report
@@ -55,16 +63,16 @@ class ContactHistoryTests {
     this.reporter.saveReport(report, `contact-history-test-${timestamp}.json`);
   }
 
-  private async connect(): Promise<void> {
+  private async connect(testDbPath: string): Promise<void> {
     const serverPath = path.join(__dirname, "..", "..", "build", "crm-server.js");
     
     this.transport = new StdioClientTransport({
       command: "node",
-      args: [serverPath]
+      args: [serverPath, `--db-path=${testDbPath}`]
     });
     
     await this.client.connect(this.transport);
-    console.log("✅ Connected to CRM server for history testing");
+    console.log("✅ Connected to CRM server for history testing with test database");
   }
 
   private async disconnect(): Promise<void> {
@@ -87,8 +95,8 @@ class ContactHistoryTests {
   }
 
   // Setup: Create a test contact for history testing
-  private async setupTestContact(): Promise<void> {
-    console.log("\n🔧 Setup: Creating test contact for history testing");
+  private async setupTestContacts(): Promise<void> {
+    console.log("\n🔧 Setup: Creating test contacts for history testing");
     
     try {
       const { result } = await this.callTool("add_contact", {
@@ -102,10 +110,11 @@ class ContactHistoryTests {
 
       const responseText = result.content[0].text;
       const idMatch = responseText.match(/with ID (\d+)/);
-      this.testContactId = idMatch ? parseInt(idMatch[1]) : null;
+      const testContactId = idMatch ? parseInt(idMatch[1]) : null;
       
-      if (this.testContactId) {
-        console.log(`  ✅ Test contact created with ID: ${this.testContactId}`);
+      if (testContactId) {
+        this.testContactIds.push(testContactId);
+        console.log(`  ✅ Test contact created with ID: ${testContactId}`);
       } else {
         throw new Error("Failed to create test contact");
       }
@@ -120,14 +129,14 @@ class ContactHistoryTests {
   private async testAddContactEntry(): Promise<void> {
     console.log("\n📝 Test 1: Add Contact Entry (Basic)");
     
-    if (!this.testContactId) {
-      console.log("  ⚠️ Skipping - no test contact available");
+    if (this.testContactIds.length === 0) {
+      console.log("  ⚠️ Skipping - no test contacts available");
       return;
     }
 
     try {
       const { result, duration, timestamp } = await this.callTool("add_contact_entry", {
-        contact_id: this.testContactId,
+        contact_id: this.testContactIds[0],
         entry_type: "call",
         subject: "Initial consultation call",
         content: "Discussed potential partnership opportunities and their current needs."
@@ -139,7 +148,7 @@ class ContactHistoryTests {
       const entryId = idMatch ? parseInt(idMatch[1]) : null;
       
       if (entryId) {
-        this.testEntryIds.push(entryId);
+        this.testContactIds.push(entryId);
       }
 
       this.reporter.addResult({
@@ -148,7 +157,7 @@ class ContactHistoryTests {
         duration,
         timestamp,
         data: { 
-          contactId: this.testContactId,
+          contactId: this.testContactIds[0],
           entryId,
           entryType: "call",
           response: responseText
@@ -169,12 +178,131 @@ class ContactHistoryTests {
     }
   }
 
-  // Test 2: Add Multiple Entries (Different Types)
-  private async testAddMultipleEntries(): Promise<void> {
-    console.log("\n📝 Test 2: Add Multiple Contact Entries");
+  // Test 2: Get Contact History
+  private async testGetContactHistory(): Promise<void> {
+    console.log("\n📝 Test 2: Get Contact History");
     
-    if (!this.testContactId) {
-      console.log("  ⚠️ Skipping - no test contact available");
+    if (this.testContactIds.length === 0) {
+      console.log("  ⚠️ Skipping - no test contacts available");
+      return;
+    }
+
+    try {
+      // Test full history
+      const { result: fullResult, duration: fullDuration, timestamp } = await this.callTool("get_contact_history", {
+        contact_id: this.testContactIds[0]
+      });
+      
+      const fullResponseText = fullResult.content[0].text;
+      const fullEntryCount = (fullResponseText.match(/•/g) || []).length;
+      const expectedEntries = this.testContactIds.length - 1;
+      const fullHistorySuccess = fullEntryCount >= expectedEntries;
+
+      console.log(`  📚 Full history: ${fullEntryCount} entries (expected at least ${expectedEntries})`);
+
+      // Test limited history
+      const { result: limitedResult, duration: limitedDuration } = await this.callTool("get_contact_history", {
+        contact_id: this.testContactIds[0],
+        limit: 3
+      });
+      
+      const limitedResponseText = limitedResult.content[0].text;
+      const limitedEntryCount = (limitedResponseText.match(/•/g) || []).length;
+      const limitedHistorySuccess = limitedEntryCount <= 3 && limitedEntryCount > 0;
+
+      console.log(`  📚 Limited history (3): ${limitedEntryCount} entries`);
+
+      this.reporter.addResult({
+        testName: "Get Contact History",
+        success: fullHistorySuccess && limitedHistorySuccess,
+        duration: fullDuration + limitedDuration,
+        timestamp,
+        data: { 
+          contactId: this.testContactIds[0],
+          fullHistoryEntries: fullEntryCount,
+          limitedHistoryEntries: limitedEntryCount,
+          expectedEntries,
+          fullHistoryResponse: fullResponseText,
+          limitedHistoryResponse: limitedResponseText
+        }
+      });
+      
+    } catch (error) {
+      this.reporter.addResult({
+        testName: "Get Contact History",
+        success: false,
+        duration: 0,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString()
+      });
+      console.error("  ❌ Test failed:", error);
+    }
+  }
+
+  // Test 3: Get Recent Activities
+  private async testGetRecentActivities(): Promise<void> {
+    console.log("\n📝 Test 3: Get Recent Activities");
+    
+    try {
+      // Test default limit (10)
+      const { result: defaultResult, duration: defaultDuration, timestamp } = await this.callTool("get_recent_activities", {});
+      
+      const defaultResponseText = defaultResult.content[0].text;
+      const defaultActivityCount = (defaultResponseText.match(/•/g) || []).length;
+      const defaultSuccess = defaultActivityCount > 0;
+
+      console.log(`  📊 Recent activities (default): ${defaultActivityCount} activities`);
+
+      // Test custom limit
+      const { result: customResult, duration: customDuration } = await this.callTool("get_recent_activities", {
+        limit: 5
+      });
+      
+      const customResponseText = customResult.content[0].text;
+      const customActivityCount = (customResponseText.match(/•/g) || []).length;
+      const customSuccess = customActivityCount <= 5 && customActivityCount > 0;
+
+      console.log(`  📊 Recent activities (limit 5): ${customActivityCount} activities`);
+
+      // Check if our test contacts appear in recent activities
+      const testContactsInRecent = defaultResponseText.includes("Sarah Wilson") || 
+                                   customResponseText.includes("Sarah Wilson");
+
+      this.reporter.addResult({
+        testName: "Get Recent Activities",
+        success: defaultSuccess && customSuccess && testContactsInRecent,
+        duration: defaultDuration + customDuration,
+        timestamp,
+        data: { 
+          defaultActivityCount,
+          customActivityCount,
+          testContactsInRecent,
+          expectedTestContactEntries: this.testContactIds.length - 1,
+          defaultResponse: defaultResponseText,
+          customResponse: customResponseText
+        }
+      });
+
+      console.log(`  📊 Test contacts in recent activities: ${testContactsInRecent ? 'Yes' : 'No'}`);
+      
+    } catch (error) {
+      this.reporter.addResult({
+        testName: "Get Recent Activities",
+        success: false,
+        duration: 0,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString()
+      });
+      console.error("  ❌ Test failed:", error);
+    }
+  }
+
+  // Test 4: Add Multiple Entry Types
+  private async testMultipleEntryTypes(): Promise<void> {
+    console.log("\n📝 Test 4: Add Multiple Entry Types");
+    
+    if (this.testContactIds.length === 0) {
+      console.log("  ⚠️ Skipping - no test contacts available");
       return;
     }
 
@@ -207,7 +335,7 @@ class ContactHistoryTests {
     for (const entry of testEntries) {
       try {
         const { result, duration } = await this.callTool("add_contact_entry", {
-          contact_id: this.testContactId,
+          contact_id: this.testContactIds[0],
           ...entry
         });
         
@@ -217,7 +345,7 @@ class ContactHistoryTests {
         const entryId = idMatch ? parseInt(idMatch[1]) : null;
         
         if (success && entryId) {
-          this.testEntryIds.push(entryId);
+          this.testContactIds.push(entryId);
           successCount++;
         }
         
@@ -235,10 +363,10 @@ class ContactHistoryTests {
       duration: totalDuration,
       timestamp: new Date().toISOString(),
       data: { 
-        contactId: this.testContactId,
+        contactId: this.testContactIds[0],
         entriesAdded: successCount,
         totalEntries: testEntries.length,
-        entryIds: this.testEntryIds,
+        entryIds: this.testContactIds,
         entryTypes: testEntries.map(e => e.entry_type)
       }
     });
@@ -246,31 +374,31 @@ class ContactHistoryTests {
     console.log(`  📊 Added ${successCount}/${testEntries.length} entries successfully`);
   }
 
-  // Test 3: Get Contact History
-  private async testGetContactHistory(): Promise<void> {
-    console.log("\n📝 Test 3: Get Contact History");
+  // Test 5: Test History Pagination
+  private async testHistoryPagination(): Promise<void> {
+    console.log("\n📝 Test 5: Test History Pagination");
     
-    if (!this.testContactId) {
-      console.log("  ⚠️ Skipping - no test contact available");
+    if (this.testContactIds.length === 0) {
+      console.log("  ⚠️ Skipping - no test contacts available");
       return;
     }
 
     try {
       // Test full history
       const { result: fullResult, duration: fullDuration, timestamp } = await this.callTool("get_contact_history", {
-        contact_id: this.testContactId
+        contact_id: this.testContactIds[0]
       });
       
       const fullResponseText = fullResult.content[0].text;
       const fullEntryCount = (fullResponseText.match(/•/g) || []).length;
-      const expectedEntries = this.testEntryIds.length;
+      const expectedEntries = this.testContactIds.length - 1;
       const fullHistorySuccess = fullEntryCount >= expectedEntries;
 
       console.log(`  📚 Full history: ${fullEntryCount} entries (expected at least ${expectedEntries})`);
 
       // Test limited history
       const { result: limitedResult, duration: limitedDuration } = await this.callTool("get_contact_history", {
-        contact_id: this.testContactId,
+        contact_id: this.testContactIds[0],
         limit: 3
       });
       
@@ -286,7 +414,7 @@ class ContactHistoryTests {
         duration: fullDuration + limitedDuration,
         timestamp,
         data: { 
-          contactId: this.testContactId,
+          contactId: this.testContactIds[0],
           fullHistoryEntries: fullEntryCount,
           limitedHistoryEntries: limitedEntryCount,
           expectedEntries,
@@ -298,64 +426,6 @@ class ContactHistoryTests {
     } catch (error) {
       this.reporter.addResult({
         testName: "Get Contact History",
-        success: false,
-        duration: 0,
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: new Date().toISOString()
-      });
-      console.error("  ❌ Test failed:", error);
-    }
-  }
-
-  // Test 4: Get Recent Activities
-  private async testGetRecentActivities(): Promise<void> {
-    console.log("\n📝 Test 4: Get Recent Activities");
-    
-    try {
-      // Test default limit (10)
-      const { result: defaultResult, duration: defaultDuration, timestamp } = await this.callTool("get_recent_activities", {});
-      
-      const defaultResponseText = defaultResult.content[0].text;
-      const defaultActivityCount = (defaultResponseText.match(/•/g) || []).length;
-      const defaultSuccess = defaultActivityCount > 0;
-
-      console.log(`  📊 Recent activities (default): ${defaultActivityCount} activities`);
-
-      // Test custom limit
-      const { result: customResult, duration: customDuration } = await this.callTool("get_recent_activities", {
-        limit: 5
-      });
-      
-      const customResponseText = customResult.content[0].text;
-      const customActivityCount = (customResponseText.match(/•/g) || []).length;
-      const customSuccess = customActivityCount <= 5 && customActivityCount > 0;
-
-      console.log(`  📊 Recent activities (limit 5): ${customActivityCount} activities`);
-
-      // Check if our test contact appears in recent activities
-      const testContactInRecent = defaultResponseText.includes("Sarah Wilson") || 
-                                 customResponseText.includes("Sarah Wilson");
-
-      this.reporter.addResult({
-        testName: "Get Recent Activities",
-        success: defaultSuccess && customSuccess && testContactInRecent,
-        duration: defaultDuration + customDuration,
-        timestamp,
-        data: { 
-          defaultActivityCount,
-          customActivityCount,
-          testContactInRecent,
-          expectedTestContactEntries: this.testEntryIds.length,
-          defaultResponse: defaultResponseText,
-          customResponse: customResponseText
-        }
-      });
-
-      console.log(`  📊 Test contact in recent activities: ${testContactInRecent ? 'Yes' : 'No'}`);
-      
-    } catch (error) {
-      this.reporter.addResult({
-        testName: "Get Recent Activities",
         success: false,
         duration: 0,
         error: error instanceof Error ? error.message : String(error),

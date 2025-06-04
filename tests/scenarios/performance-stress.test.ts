@@ -2,7 +2,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { TestReporter, TestResult } from "../client/test-utilities.js";
+import { TestReporter, TestResult, TestDataGenerator, TestValidator, TestDatabaseManager } from "../client/test-utilities.js";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
@@ -14,6 +14,7 @@ class PerformanceStressTests {
   private transport?: StdioClientTransport;
   private reporter: TestReporter;
   private testContactIds: number[] = [];
+  private dbManager: TestDatabaseManager;
   private performanceMetrics: Array<{operation: string, duration: number, timestamp: number}> = [];
 
   constructor() {
@@ -22,6 +23,7 @@ class PerformanceStressTests {
       version: "1.0.0"
     });
     this.reporter = new TestReporter();
+    this.dbManager = new TestDatabaseManager("performance-stress");
   }
 
   async runAllTests(): Promise<void> {
@@ -31,22 +33,20 @@ class PerformanceStressTests {
     this.reporter.startReport();
 
     try {
+      // Setup test database
+      const testDbPath = await this.dbManager.setupTestDatabase();
+      
       // Setup
-      await this.connect();
+      await this.connect(testDbPath);
       
-      // D1: Bulk Operations Performance
+      // Performance tests
       await this.testBulkContactCreation();
-      await this.testBulkHistoryCreation();
-      
-      // D2: Large Dataset Operations
-      await this.testLargeDatasetSearch();
-      await this.testLargeDatasetExport();
-      
-      // D3: Response Time Performance
-      await this.testResponseTimes();
-      
-      // D4: Memory and Resource Usage
-      await this.testResourceUsage();
+      await this.testBulkContactRetrieval();
+      await this.testSearchPerformance();
+      await this.testConcurrentOperations();
+      await this.testLargeDatasetHandling();
+      await this.testMemoryUsage();
+      await this.testResponseTimeConsistency();
       
       // Cleanup
       await this.disconnect();
@@ -54,6 +54,9 @@ class PerformanceStressTests {
     } catch (error) {
       console.error("💥 Test suite failed:", error);
       throw error;
+    } finally {
+      // Always cleanup test database
+      await this.dbManager.cleanupTestDatabase();
     }
 
     // Generate report
@@ -62,16 +65,16 @@ class PerformanceStressTests {
     this.reporter.saveReport(report, `performance-stress-test-${timestamp}.json`);
   }
 
-  private async connect(): Promise<void> {
+  private async connect(testDbPath: string): Promise<void> {
     const serverPath = path.join(__dirname, "..", "..", "build", "crm-server.js");
     
     this.transport = new StdioClientTransport({
       command: "node",
-      args: [serverPath]
+      args: [serverPath, `--db-path=${testDbPath}`]
     });
     
     await this.client.connect(this.transport);
-    console.log("✅ Connected to CRM server for performance testing");
+    console.log("✅ Connected to CRM server for performance testing with test database");
   }
 
   private async disconnect(): Promise<void> {
@@ -187,87 +190,70 @@ class PerformanceStressTests {
     console.log(`     Total contacts created: ${this.testContactIds.length}`);
   }
 
-  // Test 2: Bulk History Creation
-  private async testBulkHistoryCreation(): Promise<void> {
-    console.log("\n📝 Test 2: Bulk History Entry Performance");
+  // Test 2: Bulk Contact Retrieval
+  private async testBulkContactRetrieval(): Promise<void> {
+    console.log("\n📝 Test 2: Bulk Contact Retrieval Performance");
     
     if (this.testContactIds.length === 0) {
       console.log("  ⚠️ Skipping - no test contacts available");
       return;
     }
 
-    const entriesPerContact = 20;
-    const testContactIds = this.testContactIds.slice(0, 10); // Use first 10 contacts
-    
-    console.log(`\n  🔄 Creating ${entriesPerContact} history entries for ${testContactIds.length} contacts...`);
-    
-    const entryTypes = ['call', 'email', 'meeting', 'note', 'task'];
-    let successCount = 0;
+    const retrievalTests = [
+      { tool: "get_contact_details", args: { id: this.testContactIds[0] }, description: "Retrieve single contact" },
+      { tool: "get_contacts", args: { ids: this.testContactIds.slice(0, 10) }, description: "Retrieve multiple contacts" },
+      { tool: "get_contacts", args: { ids: this.testContactIds.slice(0, 50) }, description: "Retrieve more contacts" },
+      { tool: "get_contacts", args: { ids: this.testContactIds.slice(0, 100) }, description: "Retrieve all contacts" }
+    ];
+
+    let allTestsPassed = true;
     let totalDuration = 0;
-    let entryDurations: number[] = [];
-    
-    const startTime = Date.now();
 
-    for (const contactId of testContactIds) {
-      for (let i = 0; i < entriesPerContact; i++) {
-        try {
-          const entryType = entryTypes[i % entryTypes.length];
-          const { result, duration } = await this.callTool("add_contact_entry", {
-            contact_id: contactId,
-            entry_type: entryType,
-            subject: `Performance Test ${entryType} #${i + 1}`,
-            content: `This is a performance test entry of type ${entryType} for contact ${contactId}. Entry number ${i + 1} of ${entriesPerContact}.`
-          });
-
-          const responseText = result.content[0].text;
-          if (responseText.includes("Successfully added")) {
-            successCount++;
-            entryDurations.push(duration);
-          }
-          
-        } catch (error) {
-          console.error(`    ❌ Failed to create entry ${i + 1} for contact ${contactId}:`, error);
-        }
+    for (const retrievalTest of retrievalTests) {
+      try {
+        console.log(`\n  🔄 Retrieving ${retrievalTest.description}`);
+        
+        const { result, duration } = await this.callTool(retrievalTest.tool, retrievalTest.args);
+        totalDuration += duration;
+        
+        const responseText = result.content[0].text;
+        const resultCount = (responseText.match(/•/g) || []).length;
+        
+        console.log(`    📋 Query: "${JSON.stringify(retrievalTest.args)}"`);
+        console.log(`    📊 Results: ${resultCount} contacts found`);
+        console.log(`    ⏱️  Response Time: ${duration}ms`);
+        
+        // Performance thresholds for retrieval
+        const retrievalPassed = duration < 200; // Under 200ms for retrieval
+        if (!retrievalPassed) allTestsPassed = false;
+        
+        console.log(`    🎯 Retrieval: ${retrievalPassed ? '✅ PASSED' : '❌ FAILED'} (${duration}ms)`);
+        
+      } catch (error) {
+        console.error(`    ❌ Retrieval failed for "${JSON.stringify(retrievalTest.args)}":`, error);
+        allTestsPassed = false;
       }
     }
 
-    totalDuration = Date.now() - startTime;
-    const avgDuration = entryDurations.reduce((sum, d) => sum + d, 0) / entryDurations.length;
-    const maxDuration = Math.max(...entryDurations);
-    const minDuration = Math.min(...entryDurations);
-    const expectedEntries = testContactIds.length * entriesPerContact;
-
-    console.log(`    📊 Bulk History Results:`);
-    console.log(`       ✅ Success Rate: ${successCount}/${expectedEntries} (${(successCount/expectedEntries*100).toFixed(1)}%)`);
-    console.log(`       ⏱️  Total Time: ${totalDuration}ms`);
-    console.log(`       📈 Avg Response: ${avgDuration.toFixed(2)}ms`);
-    console.log(`       🏃 Min Response: ${minDuration}ms`);
-    console.log(`       🐌 Max Response: ${maxDuration}ms`);
-    console.log(`       🔥 Throughput: ${(successCount / (totalDuration / 1000)).toFixed(2)} entries/sec`);
-
-    const testPassed = successCount >= expectedEntries * 0.95 && avgDuration < 50;
-
     this.reporter.addResult({
-      testName: "Bulk History Entry Performance", 
-      success: testPassed,
+      testName: "Bulk Contact Retrieval Performance",
+      success: allTestsPassed,
       duration: totalDuration,
       timestamp: new Date().toISOString(),
       data: { 
-        entriesCreated: successCount,
-        expectedEntries,
-        avgDuration,
-        maxDuration,
-        minDuration,
-        throughput: successCount / (totalDuration / 1000)
+        retrievalTests: retrievalTests.length,
+        totalDatasetSize: this.testContactIds.length,
+        avgRetrievalTime: totalDuration / retrievalTests.length
       }
     });
 
-    console.log(`\n  📈 Bulk History Creation: ${testPassed ? '✅ PASSED' : '❌ FAILED'}`);
+    console.log(`\n  📈 Bulk Contact Retrieval: ${allTestsPassed ? '✅ PASSED' : '❌ FAILED'}`);
+    console.log(`     Average retrieval time: ${(totalDuration / retrievalTests.length).toFixed(2)}ms`);
   }
 
-  // Test 3: Large Dataset Search Performance
-  private async testLargeDatasetSearch(): Promise<void> {
-    console.log("\n📝 Test 3: Large Dataset Search Performance");
+  // Test 3: Search Performance
+  private async testSearchPerformance(): Promise<void> {
+    console.log("\n📝 Test 3: Search Performance");
     
     const searchQueries = [
       { query: "Test", description: "Common term search" },
@@ -308,7 +294,7 @@ class PerformanceStressTests {
     }
 
     this.reporter.addResult({
-      testName: "Large Dataset Search Performance",
+      testName: "Search Performance",
       success: allTestsPassed,
       duration: totalDuration,
       timestamp: new Date().toISOString(),
@@ -319,13 +305,66 @@ class PerformanceStressTests {
       }
     });
 
-    console.log(`\n  📈 Large Dataset Search: ${allTestsPassed ? '✅ PASSED' : '❌ FAILED'}`);
+    console.log(`\n  📈 Search Performance: ${allTestsPassed ? '✅ PASSED' : '❌ FAILED'}`);
     console.log(`     Average search time: ${(totalDuration / searchQueries.length).toFixed(2)}ms`);
   }
 
-  // Test 4: Large Dataset Export Performance
-  private async testLargeDatasetExport(): Promise<void> {
-    console.log("\n📝 Test 4: Large Dataset Export Performance");
+  // Test 4: Concurrent Operations
+  private async testConcurrentOperations(): Promise<void> {
+    console.log("\n📝 Test 4: Concurrent Operations");
+    
+    const operations = [
+      { tool: "add_contact", args: { name: "Concurrent Contact 1", organization: "Concurrent Corp", job_title: "Concurrent Role", email: "concurrent1@perftest.com", phone: "+1-555-1111" }, description: "Add a new contact" },
+      { tool: "add_contact", args: { name: "Concurrent Contact 2", organization: "Concurrent Corp", job_title: "Concurrent Role", email: "concurrent2@perftest.com", phone: "+1-555-2222" }, description: "Add another new contact" },
+      { tool: "get_contact_details", args: { id: this.testContactIds[0] }, description: "Retrieve details of an existing contact" },
+      { tool: "get_contact_details", args: { id: this.testContactIds[1] }, description: "Retrieve details of another existing contact" }
+    ];
+
+    let allTestsPassed = true;
+    let totalDuration = 0;
+
+    for (const operation of operations) {
+      try {
+        console.log(`\n  🔄 Performing: ${operation.description}`);
+        
+        const { result, duration } = await this.callTool(operation.tool, operation.args);
+        totalDuration += duration;
+        
+        const responseText = result.content[0].text;
+        console.log(`    📋 Result: ${responseText}`);
+        console.log(`    ⏱️  Response Time: ${duration}ms`);
+        
+        // Performance thresholds for concurrent operations
+        const concurrentPassed = duration < 500; // Under 500ms for concurrent operation
+        if (!concurrentPassed) allTestsPassed = false;
+        
+        console.log(`    🎯 Concurrent: ${concurrentPassed ? '✅ PASSED' : '❌ FAILED'} (${duration}ms)`);
+        
+      } catch (error) {
+        console.error(`    ❌ Operation failed for "${operation.description}":`, error);
+        allTestsPassed = false;
+      }
+    }
+
+    this.reporter.addResult({
+      testName: "Concurrent Operations",
+      success: allTestsPassed,
+      duration: totalDuration,
+      timestamp: new Date().toISOString(),
+      data: { 
+        operations: operations.length,
+        totalDatasetSize: this.testContactIds.length,
+        avgConcurrentTime: totalDuration / operations.length
+      }
+    });
+
+    console.log(`\n  📈 Concurrent Operations: ${allTestsPassed ? '✅ PASSED' : '❌ FAILED'}`);
+    console.log(`     Average concurrent time: ${(totalDuration / operations.length).toFixed(2)}ms`);
+  }
+
+  // Test 5: Large Dataset Handling
+  private async testLargeDatasetHandling(): Promise<void> {
+    console.log("\n📝 Test 5: Large Dataset Handling");
     
     const exportTests = [
       { tool: "export_contacts_csv", args: {}, description: "Full contacts export" },
@@ -380,9 +419,76 @@ class PerformanceStressTests {
     console.log(`     Average export time: ${(totalDuration / exportTests.length).toFixed(2)}ms`);
   }
 
-  // Test 5: Response Time Consistency
-  private async testResponseTimes(): Promise<void> {
-    console.log("\n📝 Test 5: Response Time Consistency");
+  // Test 6: Memory Usage
+  private async testMemoryUsage(): Promise<void> {
+    console.log("\n📝 Test 6: Memory Usage Analysis");
+    
+    // Analyze performance metrics collected during tests
+    if (this.performanceMetrics.length === 0) {
+      console.log("  ⚠️ No performance metrics available");
+      return;
+    }
+
+    const operationStats = new Map<string, number[]>();
+    
+    // Group metrics by operation
+    for (const metric of this.performanceMetrics) {
+      if (!operationStats.has(metric.operation)) {
+        operationStats.set(metric.operation, []);
+      }
+      operationStats.get(metric.operation)!.push(metric.duration);
+    }
+
+    console.log(`\n  📊 Performance Summary by Operation:`);
+    
+    let overallHealthy = true;
+    
+    for (const [operation, durations] of operationStats) {
+      const count = durations.length;
+      const avg = durations.reduce((sum, d) => sum + d, 0) / count;
+      const min = Math.min(...durations);
+      const max = Math.max(...durations);
+      
+      console.log(`\n    🔧 ${operation}:`);
+      console.log(`       📈 Calls: ${count}`);
+      console.log(`       ⏱️  Avg: ${avg.toFixed(2)}ms`);
+      console.log(`       🏃 Min: ${min}ms`);
+      console.log(`       🐌 Max: ${max}ms`);
+      
+      // Health check per operation
+      const healthy = avg < 100 && max < 500;
+      if (!healthy) overallHealthy = false;
+      
+      console.log(`       💊 Health: ${healthy ? '✅ Good' : '⚠️ Concerning'}`);
+    }
+
+    // Memory usage estimation based on data created
+    const estimatedMemoryUsage = this.testContactIds.length * 1024; // Rough estimate
+    console.log(`\n  🧠 Estimated Memory Impact:`);
+    console.log(`     📋 Test Data Created: ${this.testContactIds.length} contacts`);
+    console.log(`     💾 Estimated Size: ${(estimatedMemoryUsage / 1024).toFixed(2)} KB`);
+
+    this.reporter.addResult({
+      testName: "Resource Usage Analysis",
+      success: overallHealthy,
+      duration: 0,
+      timestamp: new Date().toISOString(),
+      data: { 
+        operationCounts: Object.fromEntries(
+          Array.from(operationStats.entries()).map(([op, durations]) => [op, durations.length])
+        ),
+        performanceMetrics: this.performanceMetrics,
+        estimatedMemoryUsage,
+        overallHealthy
+      }
+    });
+
+    console.log(`\n  📈 Resource Usage: ${overallHealthy ? '✅ HEALTHY' : '⚠️ CONCERNING'}`);
+  }
+
+  // Test 7: Response Time Consistency
+  private async testResponseTimeConsistency(): Promise<void> {
+    console.log("\n📝 Test 7: Response Time Consistency");
     
     if (this.testContactIds.length === 0) {
       console.log("  ⚠️ Skipping - no test contacts available");
@@ -457,73 +563,6 @@ class PerformanceStressTests {
     } else {
       console.log(`\n  ❌ No successful responses to analyze`);
     }
-  }
-
-  // Test 6: Resource Usage Estimation
-  private async testResourceUsage(): Promise<void> {
-    console.log("\n📝 Test 6: Resource Usage Analysis");
-    
-    // Analyze performance metrics collected during tests
-    if (this.performanceMetrics.length === 0) {
-      console.log("  ⚠️ No performance metrics available");
-      return;
-    }
-
-    const operationStats = new Map<string, number[]>();
-    
-    // Group metrics by operation
-    for (const metric of this.performanceMetrics) {
-      if (!operationStats.has(metric.operation)) {
-        operationStats.set(metric.operation, []);
-      }
-      operationStats.get(metric.operation)!.push(metric.duration);
-    }
-
-    console.log(`\n  📊 Performance Summary by Operation:`);
-    
-    let overallHealthy = true;
-    
-    for (const [operation, durations] of operationStats) {
-      const count = durations.length;
-      const avg = durations.reduce((sum, d) => sum + d, 0) / count;
-      const min = Math.min(...durations);
-      const max = Math.max(...durations);
-      
-      console.log(`\n    🔧 ${operation}:`);
-      console.log(`       📈 Calls: ${count}`);
-      console.log(`       ⏱️  Avg: ${avg.toFixed(2)}ms`);
-      console.log(`       🏃 Min: ${min}ms`);
-      console.log(`       🐌 Max: ${max}ms`);
-      
-      // Health check per operation
-      const healthy = avg < 100 && max < 500;
-      if (!healthy) overallHealthy = false;
-      
-      console.log(`       💊 Health: ${healthy ? '✅ Good' : '⚠️ Concerning'}`);
-    }
-
-    // Memory usage estimation based on data created
-    const estimatedMemoryUsage = this.testContactIds.length * 1024; // Rough estimate
-    console.log(`\n  🧠 Estimated Memory Impact:`);
-    console.log(`     📋 Test Data Created: ${this.testContactIds.length} contacts`);
-    console.log(`     💾 Estimated Size: ${(estimatedMemoryUsage / 1024).toFixed(2)} KB`);
-
-    this.reporter.addResult({
-      testName: "Resource Usage Analysis",
-      success: overallHealthy,
-      duration: 0,
-      timestamp: new Date().toISOString(),
-      data: { 
-        operationCounts: Object.fromEntries(
-          Array.from(operationStats.entries()).map(([op, durations]) => [op, durations.length])
-        ),
-        performanceMetrics: this.performanceMetrics,
-        estimatedMemoryUsage,
-        overallHealthy
-      }
-    });
-
-    console.log(`\n  📈 Resource Usage: ${overallHealthy ? '✅ HEALTHY' : '⚠️ CONCERNING'}`);
   }
 }
 

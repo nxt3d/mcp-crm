@@ -1,9 +1,17 @@
 #!/usr/bin/env node
+
+// DEBUG: Log environment variables immediately when process starts
+console.error("🔍 STARTUP DEBUG - All environment variables:");
+Object.keys(process.env).filter(key => key.startsWith('CRM')).forEach(key => {
+  console.error(`  ${key}=${process.env[key]}`);
+});
+console.error(`🔍 STARTUP DEBUG - CRM_DB_PATH specifically: ${process.env.CRM_DB_PATH}`);
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import * as sqlite3 from "sqlite3";
-const Database = sqlite3.Database;
+import pkg from "sqlite3";
+const { Database } = pkg;
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { mkdir, writeFile } from "fs/promises";
@@ -388,8 +396,15 @@ class CRMDatabase {
   }
 }
 
-// Initialize database
-const dbPath = join(__dirname, "..", "data", "crm.sqlite");
+// Database path configuration - allow override for testing
+console.log("🔍 Environment variables:", Object.keys(process.env).filter(key => key.startsWith('CRM')).map(key => `${key}=${process.env[key]}`));
+
+// Check for database path in command line arguments (--db-path argument)
+const dbPathArg = process.argv.find(arg => arg.startsWith('--db-path='));
+const dbPathFromArg = dbPathArg ? dbPathArg.split('=')[1] : null;
+
+const dbPath = dbPathFromArg || process.env.CRM_DB_PATH || join(__dirname, "..", "data", "crm.sqlite");
+console.log(`🗄️ Database: ${dbPath}`);
 const database = new CRMDatabase(dbPath);
 
 // Create the MCP server

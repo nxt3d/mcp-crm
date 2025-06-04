@@ -2,7 +2,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { TestReporter, TestResult, TestDataGenerator, TestValidator } from "../client/test-utilities.js";
+import { TestReporter, TestResult, TestDataGenerator, TestValidator, TestDatabaseManager } from "../client/test-utilities.js";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
@@ -14,6 +14,7 @@ class ContactManagementTests {
   private transport?: StdioClientTransport;
   private reporter: TestReporter;
   private testContactIds: number[] = [];
+  private dbManager: TestDatabaseManager;
 
   constructor() {
     this.client = new Client({
@@ -21,6 +22,7 @@ class ContactManagementTests {
       version: "1.0.0"
     });
     this.reporter = new TestReporter();
+    this.dbManager = new TestDatabaseManager("contact-management");
   }
 
   async runAllTests(): Promise<void> {
@@ -30,8 +32,11 @@ class ContactManagementTests {
     this.reporter.startReport();
 
     try {
+      // Setup test database
+      const testDbPath = await this.dbManager.setupTestDatabase();
+      
       // Setup
-      await this.connect();
+      await this.connect(testDbPath);
       
       // B1: Contact Management Tools (7 tools)
       await this.testAddContact();
@@ -49,6 +54,9 @@ class ContactManagementTests {
     } catch (error) {
       console.error("💥 Test suite failed:", error);
       throw error;
+    } finally {
+      // Always cleanup test database
+      await this.dbManager.cleanupTestDatabase();
     }
 
     // Generate report
@@ -57,16 +65,16 @@ class ContactManagementTests {
     this.reporter.saveReport(report, `contact-management-test-${timestamp}.json`);
   }
 
-  private async connect(): Promise<void> {
+  private async connect(testDbPath: string): Promise<void> {
     const serverPath = path.join(__dirname, "..", "..", "build", "crm-server.js");
     
     this.transport = new StdioClientTransport({
       command: "node",
-      args: [serverPath]
+      args: [serverPath, `--db-path=${testDbPath}`]
     });
     
     await this.client.connect(this.transport);
-    console.log("✅ Connected to CRM server for testing");
+    console.log("✅ Connected to CRM server for testing with test database");
   }
 
   private async disconnect(): Promise<void> {

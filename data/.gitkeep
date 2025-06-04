@@ -1,0 +1,2 @@
+# This file ensures the data directory is created in the repository
+# while excluding actual database files via .gitignore 

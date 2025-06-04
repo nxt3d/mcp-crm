@@ -2,36 +2,43 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { TestReporter, TestResult } from "../client/test-utilities.js";
+import { TestReporter, TestResult, TestDataGenerator, TestValidator, TestDatabaseManager } from "../client/test-utilities.js";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-class EdgeCaseTests {
+class EdgeCasesTests {
   private client: Client;
   private transport?: StdioClientTransport;
   private reporter: TestReporter;
   private testContactIds: number[] = [];
+  private dbManager: TestDatabaseManager;
 
   constructor() {
     this.client = new Client({
-      name: "crm-edge-case-test-client",
+      name: "crm-edge-test-client",
       version: "1.0.0"
     });
     this.reporter = new TestReporter();
+    this.dbManager = new TestDatabaseManager("edge-cases");
   }
 
   async runAllTests(): Promise<void> {
-    console.log("🧪 Starting Edge Case Tests");
+    console.log("🧪 Starting Edge Cases Tests");
     console.log("=" .repeat(60));
     
     this.reporter.startReport();
 
     try {
+      // Setup test database
+      const testDbPath = await this.dbManager.setupTestDatabase();
+      
       // Setup
-      await this.connect();
+      await this.connect(testDbPath);
+      
+      // Edge case tests
       await this.setupTestData();
       
       // C1: Input Validation Edge Cases
@@ -58,6 +65,9 @@ class EdgeCaseTests {
     } catch (error) {
       console.error("💥 Test suite failed:", error);
       throw error;
+    } finally {
+      // Always cleanup test database
+      await this.dbManager.cleanupTestDatabase();
     }
 
     // Generate report
@@ -66,16 +76,16 @@ class EdgeCaseTests {
     this.reporter.saveReport(report, `edge-cases-test-${timestamp}.json`);
   }
 
-  private async connect(): Promise<void> {
+  private async connect(testDbPath: string): Promise<void> {
     const serverPath = path.join(__dirname, "..", "..", "build", "crm-server.js");
     
     this.transport = new StdioClientTransport({
       command: "node",
-      args: [serverPath]
+      args: [serverPath, `--db-path=${testDbPath}`]
     });
     
     await this.client.connect(this.transport);
-    console.log("✅ Connected to CRM server for edge case testing");
+    console.log("✅ Connected to CRM server for edge case testing with test database");
   }
 
   private async disconnect(): Promise<void> {
@@ -748,7 +758,7 @@ class EdgeCaseTests {
 
 // Run tests if this file is executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const tests = new EdgeCaseTests();
+  const tests = new EdgeCasesTests();
   tests.runAllTests()
     .then(() => {
       console.log("\n🎉 Edge Case tests completed!");

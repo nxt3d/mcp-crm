@@ -2,7 +2,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { TestReporter, TestResult, TestValidator } from "../client/test-utilities.js";
+import { TestReporter, TestResult, TestDataGenerator, TestValidator, TestDatabaseManager } from "../client/test-utilities.js";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
@@ -14,6 +14,7 @@ class ExportFunctionalityTests {
   private transport?: StdioClientTransport;
   private reporter: TestReporter;
   private testContactIds: number[] = [];
+  private dbManager: TestDatabaseManager;
 
   constructor() {
     this.client = new Client({
@@ -21,6 +22,7 @@ class ExportFunctionalityTests {
       version: "1.0.0"
     });
     this.reporter = new TestReporter();
+    this.dbManager = new TestDatabaseManager("export-functionality");
   }
 
   async runAllTests(): Promise<void> {
@@ -30,11 +32,14 @@ class ExportFunctionalityTests {
     this.reporter.startReport();
 
     try {
-      // Setup
-      await this.connect();
-      await this.setupTestData();
+      // Setup test database
+      const testDbPath = await this.dbManager.setupTestDatabase();
       
-      // B3: Export Functionality Tools (3 tools)
+      // Setup
+      await this.connect(testDbPath);
+      
+      // B3: Export Functionality Tests
+      await this.setupTestData();
       await this.testExportContactsCSV();
       await this.testExportContactHistoryCSV();
       await this.testExportFullCRMCSV();
@@ -45,6 +50,9 @@ class ExportFunctionalityTests {
     } catch (error) {
       console.error("💥 Test suite failed:", error);
       throw error;
+    } finally {
+      // Always cleanup test database
+      await this.dbManager.cleanupTestDatabase();
     }
 
     // Generate report
@@ -53,16 +61,16 @@ class ExportFunctionalityTests {
     this.reporter.saveReport(report, `export-functionality-test-${timestamp}.json`);
   }
 
-  private async connect(): Promise<void> {
+  private async connect(testDbPath: string): Promise<void> {
     const serverPath = path.join(__dirname, "..", "..", "build", "crm-server.js");
     
     this.transport = new StdioClientTransport({
       command: "node",
-      args: [serverPath]
+      args: [serverPath, `--db-path=${testDbPath}`]
     });
     
     await this.client.connect(this.transport);
-    console.log("✅ Connected to CRM server for export testing");
+    console.log("✅ Connected to CRM server for export testing with test database");
   }
 
   private async disconnect(): Promise<void> {
@@ -364,4 +372,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.error("\n💥 Export Functionality tests failed:", error);
       process.exit(1);
     });
-} 
+}

@@ -1,3 +1,10 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 export interface TestConfig {
   serverPath: string;
   testDatabase: string;
@@ -189,6 +196,75 @@ export class TestValidator {
 
   static validateResponseTime(duration: number, maxMs: number): boolean {
     return duration <= maxMs;
+  }
+}
+
+export class TestDatabaseManager {
+  private testDbPath: string;
+  private isTemporary: boolean;
+
+  constructor(testName?: string) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dbName = testName ? `test-${testName}-${timestamp}.sqlite` : `test-${timestamp}.sqlite`;
+    this.testDbPath = path.join(__dirname, '..', 'data', dbName);
+    this.isTemporary = true;
+  }
+
+  /**
+   * Creates the test database directory and returns the database path
+   */
+  async setupTestDatabase(): Promise<string> {
+    const dbDir = path.dirname(this.testDbPath);
+    
+    // Ensure the test data directory exists
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+
+    // Clean up any existing test database file
+    if (fs.existsSync(this.testDbPath)) {
+      fs.unlinkSync(this.testDbPath);
+    }
+
+    console.log(`🗄️ Test database prepared: ${this.testDbPath}`);
+    return this.testDbPath;
+  }
+
+  /**
+   * Cleans up the test database after tests complete
+   */
+  async cleanupTestDatabase(): Promise<void> {
+    if (this.isTemporary && fs.existsSync(this.testDbPath)) {
+      try {
+        fs.unlinkSync(this.testDbPath);
+        console.log(`🗑️ Test database cleaned up: ${this.testDbPath}`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to cleanup test database: ${error}`);
+      }
+    }
+  }
+
+  /**
+   * Get the current test database path
+   */
+  getTestDatabasePath(): string {
+    return this.testDbPath;
+  }
+
+  /**
+   * Set whether this database should be automatically cleaned up
+   */
+  setTemporary(temporary: boolean): void {
+    this.isTemporary = temporary;
+  }
+
+  /**
+   * Creates a fresh test database with a specific name (useful for preserving test data)
+   */
+  static createNamedTestDatabase(name: string): TestDatabaseManager {
+    const manager = new TestDatabaseManager(name);
+    manager.setTemporary(false); // Named databases are not automatically cleaned up
+    return manager;
   }
 }
 

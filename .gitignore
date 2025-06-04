@@ -18,13 +18,17 @@ dist/
 .env.test.local
 .env.production.local
 
-# Database files (keep production DB, ignore test/temp DBs)
+# Database files and archives (contain sensitive data - never commit)
+data/crm.sqlite
+data/archives/*.sqlite
 data/hello-db.sqlite
 data/test*.sqlite
 data/*.db-shm
 data/*.db-wal
+*.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.db
 
 # Logs
 logs/

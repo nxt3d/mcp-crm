@@ -1,0 +1,2 @@
+# This file ensures the archives directory exists
+# Database archive files are excluded via .gitignore for security and size reasons 

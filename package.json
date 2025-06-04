@@ -15,7 +15,15 @@
     "dev": "npm run watch",
     "clean": "rm -rf build",
     "build:crm": "tsc && chmod +x build/crm-server.js",
-    "start:crm": "node ./build/crm-server.js"
+    "start:crm": "node ./build/crm-server.js",
+    "db:reset": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js reset",
+    "db:archive": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js archive",
+    "db:list": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js list",
+    "db:stats": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js stats",
+    "db:help": "npx tsc scripts/database-manager.ts --outDir build/scripts --target ES2022 --module Node16 --moduleResolution Node16 && node build/scripts/database-manager.js",
+    "test:db": "cd tests && npx tsc && node build/scenarios/database-management.test.js",
+    "test:comprehensive": "cd tests && npx tsx run-comprehensive-tests.ts",
+    "test:all": "npm run test:comprehensive"
   },
   "keywords": [
     "mcp",
