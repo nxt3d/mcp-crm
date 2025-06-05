@@ -4,11 +4,12 @@ A production-ready **Model Context Protocol (MCP) server** for Customer Relation
 
 ## 🚀 Features
 
-### Core CRM Tools (14 Total)
+### Core CRM Tools (17 Total)
 - **Contact Management**: Add, update, search, list, and archive contacts
 - **Organization Management**: Filter contacts by organization
 - **Contact History**: Track, update, and manage interactions, calls, emails, meetings, and notes
 - **Entry Management**: Full CRUD operations on contact history entries
+- **Todo Management**: Add, update, filter, and track action items for contacts
 - **Data Export**: CSV exports for contacts, history, and full CRM data
 - **Recent Activities**: Track and retrieve recent CRM activities
 
@@ -262,6 +263,13 @@ Archives are stored in `data/archives/` with descriptive names:
 | `get_contact_history` | Get all history for a contact | `contact_id` (required), `limit` (optional) |
 | `get_recent_activities` | Get recent CRM activities | `limit` (optional, default: 10) |
 
+### Todo Management
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `add_todo` | Add todo for a contact | `contact_id` (required), `todo_text` (required), `target_date` (optional) |
+| `update_todo` | Update existing todo | `todo_id` (required), optional: `todo_text`, `target_date`, `is_completed` |
+| `get_todos` | Get todos with advanced filtering | `contact_id` (optional), `include_completed` (optional), `days_ahead` (optional), `days_old` (optional) |
+
 ### Data Export
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -306,6 +314,44 @@ Archives are stored in `data/archives/` with descriptive names:
     "entry_type": "call",
     "subject": "Discovery Call",
     "content": "Discussed requirements and pricing. Follow up in 1 week."
+  }
+}
+```
+
+### Adding Todos
+```typescript
+{
+  "name": "add_todo",
+  "arguments": {
+    "contact_id": 1,
+    "todo_text": "Follow up on pricing discussion",
+    "target_date": "2025-06-15T10:00:00Z"
+  }
+}
+```
+
+### Getting Todos
+```typescript
+// Get all incomplete todos
+{
+  "name": "get_todos",
+  "arguments": {}
+}
+
+// Get todos due in next 7 days
+{
+  "name": "get_todos", 
+  "arguments": {
+    "days_ahead": 7
+  }
+}
+
+// Get todos for specific contact
+{
+  "name": "get_todos",
+  "arguments": {
+    "contact_id": 1,
+    "include_completed": true
   }
 }
 ```

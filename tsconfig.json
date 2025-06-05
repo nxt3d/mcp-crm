@@ -11,6 +11,7 @@
     "noEmitOnError": false,
     "declaration": true,
     "outDir": "./build",
+    "rootDir": "./src",
     "removeComments": true,
     "strict": true,
     "noImplicitAny": true,
@@ -21,6 +22,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*", "examples/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "build"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "build", "examples", "tests"]
 } 

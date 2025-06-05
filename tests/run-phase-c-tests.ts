@@ -154,13 +154,13 @@ if (totalPassed === totalSuites) {
 // Testing progression summary
 console.log(`\n🎯 CRM MCP Testing Progression Summary:`);
 console.log(`  ✅ Phase A: Client Setup & Connection - COMPLETED`);
-console.log(`  ✅ Phase B: Core Tool Testing (13/13 tools) - COMPLETED`);
+console.log(`  ✅ Phase B: Core Tool Testing (14/14 tools) - COMPLETED`);
 console.log(`  ${totalPassed === totalSuites ? '✅' : '⚠️'} Phase C: Advanced Testing - ${totalPassed === totalSuites ? 'COMPLETED' : 'PARTIAL'}`);
 
 if (totalPassed === totalSuites) {
   console.log(`\n🎉 COMPREHENSIVE TESTING COMPLETE!`);
   console.log(`🚀 CRM MCP Server has passed all phases of testing:`);
-  console.log(`   📞 All 13 CRM tools are fully functional`);
+  console.log(`   📞 All 14 CRM tools are fully functional`);
   console.log(`   🛡️ Security and edge cases are handled properly`);
   console.log(`   🚀 Performance meets production standards`);
   console.log(`   ✅ System is ready for production deployment!`);

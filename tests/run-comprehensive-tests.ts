@@ -43,7 +43,7 @@ class ComprehensiveTestRunner {
     },
     {
       name: "Core Functionality",
-      description: "Tests all 13 CRM tools including contact management, history, and exports",
+      description: "Tests all 14 CRM tools including contact management, history, and exports",
       command: "npx tsx run-phase-b-tests.ts",
       category: "Core Features",
       requiresIsolation: true
@@ -311,7 +311,7 @@ class ComprehensiveTestRunner {
     if (passedPhases === totalPhases) {
       console.log("🚀 CRM MCP Server is production ready!");
       console.log("✅ Database management system validated");
-      console.log("✅ All 13 CRM tools functioning correctly");
+      console.log("✅ All 14 CRM tools functioning correctly");
       console.log("✅ Edge cases and performance verified");
       console.log("✅ System ready for deployment");
     } else {

@@ -15,6 +15,7 @@ const { Database } = pkg;
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { mkdir, writeFile } from "fs/promises";
+import { toolDescriptions } from "./tool-descriptions.js";
 
 /**
  * CRM MCP Server
@@ -56,6 +57,16 @@ interface ContactEntry {
   content: string | null;
   entry_date: string;
   created_at: string;
+}
+
+interface ContactTodo {
+  id: number;
+  contact_id: number;
+  todo_text: string;
+  target_date: string | null;
+  is_completed: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 // CRM database class
@@ -174,7 +185,31 @@ class CRMDatabase {
         return;
       }
 
-      console.error("✅ CRM database initialized with contacts and contact_entries tables");
+      // Create contact_todos table
+      this.createContactTodosTable(resolve, reject);
+    });
+  }
+
+  private createContactTodosTable(resolve: () => void, reject: (error: any) => void): void {
+    // Create contact_todos table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS contact_todos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contact_id INTEGER NOT NULL,
+        todo_text TEXT NOT NULL,
+        target_date DATETIME,
+        is_completed BOOLEAN DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (contact_id) REFERENCES contacts (id)
+      )
+    `, (err: any) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      console.error("✅ CRM database initialized with contacts, contact_entries, and contact_todos tables");
       resolve();
     });
   }
@@ -335,17 +370,13 @@ class CRMDatabase {
     entry_type: string;
     subject: string;
     content?: string;
+    interaction_date: string;
   }): Promise<number> {
     return new Promise((resolve, reject) => {
-      this.db.run(`
-        INSERT INTO contact_entries (contact_id, entry_type, subject, content)
-        VALUES (?, ?, ?, ?)
-      `, [
-        data.contact_id,
-        data.entry_type,
-        data.subject,
-        data.content || null
-      ], function(err: any) {
+      const query = `INSERT INTO contact_entries (contact_id, entry_type, subject, content, entry_date) VALUES (?, ?, ?, ?, ?)`;
+      const params = [data.contact_id, data.entry_type, data.subject, data.content || null, data.interaction_date];
+
+      this.db.run(query, params, function(err: any) {
         if (err) {
           reject(err);
         } else {
@@ -412,9 +443,14 @@ class CRMDatabase {
     entry_type: string;
     subject: string;
     content: string;
+    interaction_date: string;
   }>): Promise<boolean> {
     return new Promise((resolve, reject) => {
-      const fields = Object.keys(data).map(key => `${key} = ?`).join(', ');
+      const fields = Object.keys(data).map(key => {
+        // Map interaction_date to entry_date for database column
+        const dbKey = key === 'interaction_date' ? 'entry_date' : key;
+        return `${dbKey} = ?`;
+      }).join(', ');
       const values = [...Object.values(data), entryId];
       
       this.db.run(
@@ -461,39 +497,292 @@ class CRMDatabase {
 
   async exportContactHistory(contactId?: number): Promise<string> {
     return new Promise((resolve, reject) => {
-      const query = contactId 
-        ? `SELECT ce.*, c.name as contact_name FROM contact_entries ce 
-           JOIN contacts c ON ce.contact_id = c.id 
-           WHERE ce.contact_id = ? ORDER BY ce.entry_date DESC`
-        : `SELECT ce.*, c.name as contact_name FROM contact_entries ce 
-           JOIN contacts c ON ce.contact_id = c.id 
-           ORDER BY ce.entry_date DESC`;
-      
-      const params = contactId ? [contactId] : [];
-      
-      this.db.all(query, params, (err: any, rows: Array<ContactEntry & { contact_name: string }>) => {
-        if (err) {
-          reject(err);
-          return;
-        }
+      if (contactId) {
+        // First get the contact details for header information
+        this.db.get(
+          'SELECT * FROM contacts WHERE id = ?',
+          [contactId],
+          (err: any, contact: Contact) => {
+            if (err) {
+              reject(err);
+              return;
+            }
 
-        const headers = ['Entry ID', 'Contact Name', 'Entry Type', 'Subject', 'Content', 'Entry Date', 'Created'];
+            if (!contact) {
+              reject(new Error(`Contact with ID ${contactId} not found`));
+              return;
+            }
+
+            // Now get the contact history
+            const query = `SELECT ce.*, c.name as contact_name FROM contact_entries ce 
+                          JOIN contacts c ON ce.contact_id = c.id 
+                          WHERE ce.contact_id = ? ORDER BY ce.entry_date ASC`;
+            
+            this.db.all(query, [contactId], (err: any, rows: Array<ContactEntry & { contact_name: string }>) => {
+              if (err) {
+                reject(err);
+                return;
+              }
+
+              // Build CSV with contact info at top
+              const csvRows = [];
+              
+              // Contact Information Header
+              csvRows.push('=== CONTACT INFORMATION ===');
+              csvRows.push(`Name,"${contact.name.replace(/"/g, '""')}"`);
+              csvRows.push(`Organization,"${(contact.organization || '').replace(/"/g, '""')}"`);
+              csvRows.push(`Job Title,"${(contact.job_title || '').replace(/"/g, '""')}"`);
+              csvRows.push(`Email,"${(contact.email || '').replace(/"/g, '""')}"`);
+              csvRows.push(`Phone,"${(contact.phone || '').replace(/"/g, '""')}"`);
+              csvRows.push(`Telegram,"${(contact.telegram || '').replace(/"/g, '""')}"`);
+              csvRows.push(`X Account,"${(contact.x_account || '').replace(/"/g, '""')}"`);
+              csvRows.push(`Notes,"${(contact.notes || '').replace(/"/g, '""')}"`);
+              csvRows.push(`Created,${contact.created_at}`);
+              csvRows.push(`Updated,${contact.updated_at}`);
+              csvRows.push('');
+              
+              // Contact History Header
+              csvRows.push('=== CONTACT HISTORY ===');
+              const headers = ['Entry Date', 'Entry ID', 'Contact Name', 'Entry Type', 'Subject', 'Content', 'Created'];
+              csvRows.push(headers.join(','));
+              
+              rows.forEach(entry => {
+                const row = [
+                  entry.entry_date,
+                  entry.id.toString(),
+                  `"${entry.contact_name.replace(/"/g, '""')}"`,
+                  `"${entry.entry_type.replace(/"/g, '""')}"`,
+                  `"${entry.subject.replace(/"/g, '""')}"`,
+                  `"${(entry.content || '').replace(/"/g, '""')}"`,
+                  entry.created_at
+                ];
+                csvRows.push(row.join(','));
+              });
+              
+              resolve(csvRows.join('\n'));
+            });
+          }
+        );
+      } else {
+        // Export all contact history without individual contact headers
+        const query = `SELECT ce.*, c.name as contact_name FROM contact_entries ce 
+                      JOIN contacts c ON ce.contact_id = c.id 
+                      ORDER BY ce.entry_date ASC`;
+        
+        this.db.all(query, [], (err: any, rows: Array<ContactEntry & { contact_name: string }>) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          const headers = ['Entry Date', 'Entry ID', 'Contact Name', 'Entry Type', 'Subject', 'Content', 'Created'];
+          const csvRows = [headers.join(',')];
+          
+          rows.forEach(entry => {
+            const row = [
+              entry.entry_date,
+              entry.id.toString(),
+              `"${entry.contact_name.replace(/"/g, '""')}"`,
+              `"${entry.entry_type.replace(/"/g, '""')}"`,
+              `"${entry.subject.replace(/"/g, '""')}"`,
+              `"${(entry.content || '').replace(/"/g, '""')}"`,
+              entry.created_at
+            ];
+            csvRows.push(row.join(','));
+          });
+          
+          resolve(csvRows.join('\n'));
+        });
+      }
+    });
+  }
+
+  async exportContactsWithConcatenatedHistory(includeArchived: boolean = false): Promise<string> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Get all contacts
+        const contacts = await this.listContacts(includeArchived);
+        
+        // For each contact, get their history and concatenate it
+        const headers = ['ID', 'Name', 'Organization', 'Job Title', 'Email', 'Phone', 'Telegram', 'X Account', 'Notes', 'Archived', 'Created', 'Updated', 'History'];
         const csvRows = [headers.join(',')];
         
-        rows.forEach(entry => {
+        for (const contact of contacts) {
+          // Get contact history
+          const history = await this.getContactHistory(contact.id);
+          
+          // Concatenate history entries into a single string
+          const historyString = history.map(entry => {
+            const entryText = `${entry.entry_date} [${entry.entry_type}] ${entry.subject}${entry.content ? ': ' + entry.content : ''}`;
+            return entryText.replace(/"/g, '""'); // Escape quotes in history
+          }).join(' / ');
+          
           const row = [
-            entry.id.toString(),
-            `"${entry.contact_name.replace(/"/g, '""')}"`,
-            `"${entry.entry_type.replace(/"/g, '""')}"`,
-            `"${entry.subject.replace(/"/g, '""')}"`,
-            `"${(entry.content || '').replace(/"/g, '""')}"`,
-            entry.entry_date,
-            entry.created_at
+            contact.id.toString(),
+            `"${contact.name.replace(/"/g, '""')}"`,
+            `"${(contact.organization || '').replace(/"/g, '""')}"`,
+            `"${(contact.job_title || '').replace(/"/g, '""')}"`,
+            `"${(contact.email || '').replace(/"/g, '""')}"`,
+            `"${(contact.phone || '').replace(/"/g, '""')}"`,
+            `"${(contact.telegram || '').replace(/"/g, '""')}"`,
+            `"${(contact.x_account || '').replace(/"/g, '""')}"`,
+            `"${(contact.notes || '').replace(/"/g, '""')}"`,
+            contact.is_archived ? 'Yes' : 'No',
+            contact.created_at,
+            contact.updated_at,
+            `"${historyString}"`
           ];
           csvRows.push(row.join(','));
-        });
+        }
         
         resolve(csvRows.join('\n'));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  // Todo CRUD operations
+  async addTodo(data: {
+    contact_id: number;
+    todo_text: string;
+    target_date?: string;
+  }): Promise<number> {
+    return new Promise((resolve, reject) => {
+      this.db.run(`
+        INSERT INTO contact_todos (contact_id, todo_text, target_date)
+        VALUES (?, ?, ?)
+      `, [
+        data.contact_id,
+        data.todo_text,
+        data.target_date || null
+      ], function(err: any) {
+        if (err) {
+          reject(err);
+        } else {
+          // @ts-ignore
+          resolve(this.lastID);
+        }
+      });
+    });
+  }
+
+  async updateTodo(id: number, data: Partial<{
+    todo_text: string;
+    target_date: string;
+    is_completed: boolean;
+  }>): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      const updateFields: string[] = [];
+      const values: any[] = [];
+      
+      if (data.todo_text !== undefined) {
+        updateFields.push("todo_text = ?");
+        values.push(data.todo_text);
+      }
+      
+      if (data.target_date !== undefined) {
+        updateFields.push("target_date = ?");
+        values.push(data.target_date);
+      }
+      
+      if (data.is_completed !== undefined) {
+        updateFields.push("is_completed = ?");
+        values.push(data.is_completed ? 1 : 0);
+      }
+      
+      // Always update the updated_at timestamp
+      updateFields.push("updated_at = CURRENT_TIMESTAMP");
+      
+      if (updateFields.length === 1) { // Only updated_at was added
+        resolve(false);
+        return;
+      }
+      
+      values.push(id);
+      
+      this.db.run(`
+        UPDATE contact_todos 
+        SET ${updateFields.join(", ")} 
+        WHERE id = ?
+      `, values, function(err: any) {
+        if (err) {
+          reject(err);
+        } else {
+          // @ts-ignore
+          resolve(this.changes > 0);
+        }
+      });
+    });
+  }
+
+  async getTodos(filters: {
+    contact_id?: number;
+    include_completed?: boolean;
+    target_date_before?: string;
+    target_date_after?: string;
+    created_before?: string;
+    created_after?: string;
+  } = {}): Promise<Array<ContactTodo & { contact_name: string }>> {
+    return new Promise((resolve, reject) => {
+      let query = `
+        SELECT ct.*, c.name as contact_name 
+        FROM contact_todos ct 
+        JOIN contacts c ON ct.contact_id = c.id 
+        WHERE 1=1
+      `;
+      const params: any[] = [];
+      
+      if (filters.contact_id) {
+        query += " AND ct.contact_id = ?";
+        params.push(filters.contact_id);
+      }
+      
+      if (!filters.include_completed) {
+        query += " AND ct.is_completed = 0";
+      }
+      
+      if (filters.target_date_before) {
+        query += " AND ct.target_date <= ?";
+        params.push(filters.target_date_before);
+      }
+      
+      if (filters.target_date_after) {
+        query += " AND ct.target_date >= ?";
+        params.push(filters.target_date_after);
+      }
+      
+      if (filters.created_before) {
+        query += " AND ct.created_at <= ?";
+        params.push(filters.created_before);
+      }
+      
+      if (filters.created_after) {
+        query += " AND ct.created_at >= ?";
+        params.push(filters.created_after);
+      }
+      
+      query += " ORDER BY ct.target_date ASC, ct.created_at ASC";
+      
+      this.db.all(query, params, (err: any, rows: Array<ContactTodo & { contact_name: string }>) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(rows || []);
+        }
+      });
+    });
+  }
+
+  async deleteTodo(id: number): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      this.db.run("DELETE FROM contact_todos WHERE id = ?", [id], function(err: any) {
+        if (err) {
+          reject(err);
+        } else {
+          // @ts-ignore
+          resolve(this.changes > 0);
+        }
       });
     });
   }
@@ -532,14 +821,17 @@ const server = new McpServer({
 server.tool(
   "add_contact",
   {
-    name: z.string().describe("Full name of the contact"),
-    organization: z.string().optional().describe("Organization/company name"),
-    job_title: z.string().optional().describe("Job title or position"),
-    email: z.string().optional().describe("Email address"),
-    phone: z.string().optional().describe("Phone number"),
-    telegram: z.string().optional().describe("Telegram username or handle"),
-    x_account: z.string().optional().describe("X (Twitter) username or handle"),
-    notes: z.string().optional().describe("Additional notes about the contact")
+    name: z.string().describe(toolDescriptions.add_contact.name),
+    organization: z.string().optional().describe(toolDescriptions.add_contact.organization),
+    job_title: z.string().optional().describe(toolDescriptions.add_contact.job_title),
+    email: z.string().optional().describe(toolDescriptions.add_contact.email),
+    phone: z.string().optional().describe(toolDescriptions.add_contact.phone),
+    telegram: z.string().optional().describe(toolDescriptions.add_contact.telegram),
+    x_account: z.string().optional().describe(toolDescriptions.add_contact.x_account),
+    notes: z.string().optional().describe(toolDescriptions.add_contact.notes)
+  },
+  {
+    description: toolDescriptions.add_contact.description
   },
   async ({ name, organization, job_title, email, phone, telegram, x_account, notes }) => {
     try {
@@ -581,7 +873,7 @@ server.tool(
 server.tool(
   "list_contacts",
   {
-    include_archived: z.boolean().optional().describe("Whether to include archived contacts (default: false)")
+    include_archived: z.boolean().optional().describe(toolDescriptions.list_contacts.include_archived)
   },
   async ({ include_archived = false }) => {
     try {
@@ -910,12 +1202,13 @@ server.tool(
 server.tool(
   "add_contact_entry",
   {
-    contact_id: z.number().describe("Contact ID to add entry for"),
-    entry_type: z.enum(['call', 'email', 'meeting', 'note', 'task']).describe("Type of interaction"),
-    subject: z.string().describe("Brief subject/title of the entry"),
-    content: z.string().optional().describe("Detailed content of the entry")
+    contact_id: z.number().describe(toolDescriptions.add_contact_entry.contact_id),
+    entry_type: z.enum(['call', 'email', 'meeting', 'note', 'task']).describe(toolDescriptions.add_contact_entry.entry_type),
+    subject: z.string().describe(toolDescriptions.add_contact_entry.subject),
+    content: z.string().optional().describe(toolDescriptions.add_contact_entry.content),
+    interaction_date: z.string().describe(toolDescriptions.add_contact_entry.interaction_date)
   },
-  async ({ contact_id, entry_type, subject, content }) => {
+  async ({ contact_id, entry_type, subject, content, interaction_date }) => {
     try {
       const contact = await database.getContactById(contact_id);
       if (!contact) {
@@ -933,7 +1226,8 @@ server.tool(
         contact_id,
         entry_type,
         subject,
-        content
+        content,
+        interaction_date
       });
       
       return {
@@ -961,12 +1255,13 @@ server.tool(
 server.tool(
   "update_contact_entry",
   {
-    entry_id: z.number().describe("Contact entry ID to update"),
-    entry_type: z.enum(['call', 'email', 'meeting', 'note', 'task']).optional().describe("Updated type of interaction"),
-    subject: z.string().optional().describe("Updated subject/title of the entry"),
-    content: z.string().optional().describe("Updated detailed content of the entry")
+    entry_id: z.number().describe(toolDescriptions.update_contact_entry.entry_id),
+    entry_type: z.enum(['call', 'email', 'meeting', 'note', 'task']).optional().describe(toolDescriptions.update_contact_entry.entry_type),
+    subject: z.string().optional().describe(toolDescriptions.update_contact_entry.subject),
+    content: z.string().optional().describe(toolDescriptions.update_contact_entry.content),
+    interaction_date: z.string().optional().describe(toolDescriptions.update_contact_entry.interaction_date)
   },
-  async ({ entry_id, entry_type, subject, content }) => {
+  async ({ entry_id, entry_type, subject, content, interaction_date }) => {
     try {
       // First get the entry to check if it exists and get contact info
       const history = await database.getContactHistory(1); // Get all entries
@@ -988,6 +1283,7 @@ server.tool(
       if (entry_type !== undefined) updateData.entry_type = entry_type;
       if (subject !== undefined) updateData.subject = subject;
       if (content !== undefined) updateData.content = content;
+      if (interaction_date !== undefined) updateData.interaction_date = interaction_date;
 
       if (Object.keys(updateData).length === 0) {
         return {
@@ -1150,11 +1446,19 @@ server.tool(
       const csvContent = await database.exportContacts(include_archived);
       const filename = `contacts_export_${new Date().toISOString().slice(0, 10)}.csv`;
       
+      // Ensure exports directory exists
+      const exportsDir = join(__dirname, "..", "exports");
+      await mkdir(exportsDir, { recursive: true });
+      
+      // Save CSV file
+      const filePath = join(exportsDir, filename);
+      await writeFile(filePath, csvContent, 'utf-8');
+      
       return {
         content: [
           {
             type: "text",
-            text: `📁 CSV Export Generated:\n\nFilename: ${filename}\nIncludes archived: ${include_archived ? 'Yes' : 'No'}\n\n--- CSV Content ---\n${csvContent}`
+            text: `📁 CSV Export Saved:\n\nFilename: ${filename}\nPath: ${filePath}\nIncludes archived: ${include_archived ? 'Yes' : 'No'}\nSize: ${csvContent.length} characters`
           }
         ]
       };
@@ -1194,15 +1498,29 @@ server.tool(
       }
 
       const csvContent = await database.exportContactHistory(contact_id);
-      const filename = contact_id 
-        ? `contact_${contact_id}_history_${new Date().toISOString().slice(0, 10)}.csv`
-        : `all_contact_history_${new Date().toISOString().slice(0, 10)}.csv`;
+      
+      let filename: string;
+      if (contact_id) {
+        const contact = await database.getContactById(contact_id);
+        const contactName = contact ? contact.name.replace(/[^a-zA-Z0-9]/g, '_') : `contact_${contact_id}`;
+        filename = `${contactName}_history_${new Date().toISOString().slice(0, 10)}.csv`;
+      } else {
+        filename = `all_contact_history_${new Date().toISOString().slice(0, 10)}.csv`;
+      }
+      
+      // Ensure exports directory exists
+      const exportsDir = join(__dirname, "..", "exports");
+      await mkdir(exportsDir, { recursive: true });
+      
+      // Save CSV file
+      const filePath = join(exportsDir, filename);
+      await writeFile(filePath, csvContent, 'utf-8');
       
       return {
         content: [
           {
             type: "text",
-            text: `📁 Contact History CSV Export Generated:\n\nFilename: ${filename}\nScope: ${contact_id ? `Contact ID ${contact_id}` : 'All contacts'}\n\n--- CSV Content ---\n${csvContent}`
+            text: `📁 Contact History CSV Export Saved:\n\nFilename: ${filename}\nPath: ${filePath}\nScope: ${contact_id ? `Contact ID ${contact_id}` : 'All contacts'}\nSize: ${csvContent.length} characters`
           }
         ]
       };
@@ -1225,17 +1543,24 @@ server.tool(
   {},
   async () => {
     try {
-      const contactsCsv = await database.exportContacts(true); // Include archived
-      const historyCsv = await database.exportContactHistory(); // All history
+      const fullCrmCsv = await database.exportContactsWithConcatenatedHistory(true); // Include archived
       
       const timestamp = new Date().toISOString().slice(0, 10);
-      const fullExport = `=== CONTACTS ===\n${contactsCsv}\n\n=== CONTACT HISTORY ===\n${historyCsv}`;
+      const filename = `full_crm_export_${timestamp}.csv`;
+      
+      // Ensure exports directory exists
+      const exportsDir = join(__dirname, "..", "exports");
+      await mkdir(exportsDir, { recursive: true });
+      
+      // Save CSV file
+      const filePath = join(exportsDir, filename);
+      await writeFile(filePath, fullCrmCsv, 'utf-8');
       
       return {
         content: [
           {
             type: "text",
-            text: `📁 Full CRM CSV Export Generated:\n\nFilename: full_crm_export_${timestamp}.csv\nIncludes: All contacts (including archived) + all interaction history\n\n--- CSV Content ---\n${fullExport}`
+            text: `📁 Full CRM CSV Export Saved:\n\nFilename: ${filename}\nPath: ${filePath}\nIncludes: All contacts (including archived) with concatenated history\nSize: ${fullCrmCsv.length} characters`
           }
         ]
       };
@@ -1245,6 +1570,189 @@ server.tool(
           {
             type: "text",
             text: `❌ Failed to export full CRM data: ${error instanceof Error ? error.message : String(error)}`
+          }
+        ]
+      };
+    }
+  }
+);
+
+// TOOL 15: Add Todo
+server.tool(
+  "add_todo",
+  {
+    contact_id: z.number().describe("Contact ID to add todo for"),
+    todo_text: z.string().describe("Todo description"),
+    target_date: z.string().optional().describe("Target completion date (ISO datetime string, e.g. '2025-06-15T10:00:00Z')")
+  },
+  async ({ contact_id, todo_text, target_date }) => {
+    try {
+      const contact = await database.getContactById(contact_id);
+      if (!contact) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ Contact with ID ${contact_id} not found`
+            }
+          ]
+        };
+      }
+
+      const todoId = await database.addTodo({
+        contact_id,
+        todo_text,
+        target_date
+      });
+
+      const targetDateText = target_date ? `\nTarget Date: ${target_date}` : '';
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Successfully added todo for "${contact.name}" (Todo ID: ${todoId})\n\nTodo: ${todo_text}${targetDateText}`
+          }
+        ]
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Failed to add todo: ${error instanceof Error ? error.message : String(error)}`
+          }
+        ]
+      };
+    }
+  }
+);
+
+// TOOL 16: Update Todo
+server.tool(
+  "update_todo",
+  {
+    todo_id: z.number().describe("Todo ID to update"),
+    todo_text: z.string().optional().describe("Updated todo description"),
+    target_date: z.string().optional().describe("Updated target completion date (ISO datetime string)"),
+    is_completed: z.boolean().optional().describe("Mark todo as completed/incomplete")
+  },
+  async ({ todo_id, todo_text, target_date, is_completed }) => {
+    try {
+      const updated = await database.updateTodo(todo_id, {
+        todo_text,
+        target_date,
+        is_completed
+      });
+
+      if (!updated) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ Todo with ID ${todo_id} not found or no changes made`
+            }
+          ]
+        };
+      }
+
+      const changes = [];
+      if (todo_text) changes.push(`Text: "${todo_text}"`);
+      if (target_date) changes.push(`Target Date: ${target_date}`);
+      if (is_completed !== undefined) changes.push(`Status: ${is_completed ? 'Completed' : 'Incomplete'}`);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Successfully updated todo (ID: ${todo_id})\n\nUpdated: ${changes.join(', ')}`
+          }
+        ]
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Failed to update todo: ${error instanceof Error ? error.message : String(error)}`
+          }
+        ]
+      };
+    }
+  }
+);
+
+// TOOL 17: Get Todos
+server.tool(
+  "get_todos",
+  {
+    contact_id: z.number().optional().describe("Filter by specific contact ID"),
+    include_completed: z.boolean().optional().describe("Include completed todos (default: false)"),
+    days_ahead: z.number().optional().describe("Show todos due within X days"),
+    days_old: z.number().optional().describe("Show todos created more than X days ago")
+  },
+  async ({ contact_id, include_completed = false, days_ahead, days_old }) => {
+    try {
+      const filters: any = {
+        contact_id,
+        include_completed
+      };
+
+      // Calculate date filters
+      if (days_ahead) {
+        const futureDate = new Date();
+        futureDate.setDate(futureDate.getDate() + days_ahead);
+        filters.target_date_before = futureDate.toISOString();
+      }
+
+      if (days_old) {
+        const pastDate = new Date();
+        pastDate.setDate(pastDate.getDate() - days_old);
+        filters.created_before = pastDate.toISOString();
+      }
+
+      const todos = await database.getTodos(filters);
+
+      if (todos.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "📝 No todos found matching your criteria"
+            }
+          ]
+        };
+      }
+
+      const todosList = todos.map(todo => {
+        const status = todo.is_completed ? '✅' : '⏳';
+        const targetDate = todo.target_date ? `\n  🎯 Due: ${todo.target_date}` : '';
+        const createdDate = `\n  📅 Created: ${todo.created_at}`;
+        const updatedDate = todo.updated_at !== todo.created_at ? `\n  🔄 Updated: ${todo.updated_at}` : '';
+        
+        return `${status} [${todo.contact_name}] ${todo.todo_text}${targetDate}${createdDate}${updatedDate}`;
+      }).join('\n\n');
+
+      let filterDescription = '';
+      if (contact_id) filterDescription += ` for contact ID ${contact_id}`;
+      if (days_ahead) filterDescription += ` due within ${days_ahead} days`;
+      if (days_old) filterDescription += ` created more than ${days_old} days ago`;
+      if (include_completed) filterDescription += ` (including completed)`;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `📝 Todos${filterDescription} (${todos.length} found):\n\n${todosList}`
+          }
+        ]
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Failed to get todos: ${error instanceof Error ? error.message : String(error)}`
           }
         ]
       };

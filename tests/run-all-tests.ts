@@ -256,7 +256,7 @@ class CRMTestRunner {
     
     if (passedSuites === totalSuites) {
       console.log("🚀 CRM MCP Server is ready for production!");
-      console.log("✅ All 13 tools are functioning correctly");
+      console.log("✅ All 14 tools are functioning correctly");
       console.log("✅ Contact management is working perfectly");
       console.log("✅ History tracking is operational");
       console.log("✅ Export functionality is validated");

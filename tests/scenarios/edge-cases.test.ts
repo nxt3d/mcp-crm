@@ -635,6 +635,46 @@ class EdgeCasesTests {
           subject: "Special chars test",
           content: "Test with <script>alert('xss')</script> and SQL'; DROP TABLE--"
         }
+      },
+      {
+        name: "Invalid date format",
+        args: {
+          contact_id: this.testContactIds[0],
+          entry_type: "note",
+          subject: "Invalid date test",
+          content: "Testing invalid date format",
+          interaction_date: "not-a-date"
+        }
+      },
+      {
+        name: "Future date",
+        args: {
+          contact_id: this.testContactIds[0],
+          entry_type: "note",
+          subject: "Future date test",
+          content: "Testing future date",
+          interaction_date: "2030-12-31T23:59:59Z"
+        }
+      },
+      {
+        name: "Very old date",
+        args: {
+          contact_id: this.testContactIds[0],
+          entry_type: "note",
+          subject: "Old date test",
+          content: "Testing very old date",
+          interaction_date: "1990-01-01T00:00:00Z"
+        }
+      },
+      {
+        name: "Partial ISO date",
+        args: {
+          contact_id: this.testContactIds[0],
+          entry_type: "note",
+          subject: "Partial date test",
+          content: "Testing partial ISO date",
+          interaction_date: "2025-05-27"
+        }
       }
     ];
 

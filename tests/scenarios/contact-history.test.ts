@@ -41,6 +41,8 @@ class ContactHistoryTests {
       // B2: Contact History Tests
       await this.setupTestContacts();
       await this.testAddContactEntry();
+      await this.testAddContactEntryWithHistoricalDate();
+      await this.testUpdateContactEntryDate();
       await this.testGetContactHistory();
       await this.testGetRecentActivities();
       await this.testMultipleEntryTypes();
@@ -169,6 +171,129 @@ class ContactHistoryTests {
     } catch (error) {
       this.reporter.addResult({
         testName: "Add Contact Entry - Basic",
+        success: false,
+        duration: 0,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString()
+      });
+      console.error("  ❌ Test failed:", error);
+    }
+  }
+
+  // Test 1.5: Add Contact Entry with Historical Date
+  private async testAddContactEntryWithHistoricalDate(): Promise<void> {
+    console.log("\n📝 Test 1.5: Add Contact Entry with Historical Date");
+    
+    if (this.testContactIds.length === 0) {
+      console.log("  ⚠️ Skipping - no test contacts available");
+      return;
+    }
+
+    try {
+      const historicalDate = "2025-05-27T14:30:00Z";
+      const { result, duration, timestamp } = await this.callTool("add_contact_entry", {
+        contact_id: this.testContactIds[0],
+        entry_type: "meeting",
+        subject: "Historical Meeting - EthPrague Conference",
+        content: "Met at EthPrague conference to discuss potential collaboration on L2 name services.",
+        interaction_date: historicalDate
+      });
+
+      const responseText = result.content[0].text;
+      const success = responseText.includes("Successfully added");
+      const idMatch = responseText.match(/Entry ID: (\d+)/);
+      const entryId = idMatch ? parseInt(idMatch[1]) : null;
+      
+      if (entryId) {
+        this.testContactIds.push(entryId);
+      }
+
+      // Verify the date was set correctly by getting the history
+      const { result: historyResult } = await this.callTool("get_contact_history", {
+        contact_id: this.testContactIds[0]
+      });
+      
+      const historyText = historyResult.content[0].text;
+      const dateVerification = historyText.includes("2025-05-27");
+
+      this.reporter.addResult({
+        testName: "Add Contact Entry - Historical Date",
+        success: success && dateVerification,
+        duration,
+        timestamp,
+        data: { 
+          contactId: this.testContactIds[0],
+          entryId,
+          historicalDate,
+          entryType: "meeting",
+          dateVerified: dateVerification,
+          response: responseText
+        }
+      });
+
+      console.log(`  ✅ Historical entry added: ${entryId ? `Entry ID ${entryId}` : 'Success'}`);
+      console.log(`  📅 Date verification: ${dateVerification ? 'PASSED' : 'FAILED'}`);
+      
+    } catch (error) {
+      this.reporter.addResult({
+        testName: "Add Contact Entry - Historical Date",
+        success: false,
+        duration: 0,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString()
+      });
+      console.error("  ❌ Test failed:", error);
+    }
+  }
+
+  // Test 1.6: Update Contact Entry Date
+  private async testUpdateContactEntryDate(): Promise<void> {
+    console.log("\n📝 Test 1.6: Update Contact Entry Date");
+    
+    if (this.testContactIds.length < 2) {
+      console.log("  ⚠️ Skipping - no entry IDs available for update test");
+      return;
+    }
+
+    try {
+      const newDate = "2025-05-28T10:15:00Z";
+      const entryIdToUpdate = this.testContactIds[this.testContactIds.length - 1]; // Use the last entry ID
+      
+      const { result, duration, timestamp } = await this.callTool("update_contact_entry", {
+        entry_id: entryIdToUpdate,
+        interaction_date: newDate
+      });
+
+      const responseText = result.content[0].text;
+      const success = responseText.includes("Successfully updated");
+
+      // Verify the date was updated correctly by getting the history
+      const { result: historyResult } = await this.callTool("get_contact_history", {
+        contact_id: this.testContactIds[0]
+      });
+      
+      const historyText = historyResult.content[0].text;
+      const dateVerification = historyText.includes("2025-05-28");
+
+      this.reporter.addResult({
+        testName: "Update Contact Entry - Date",
+        success: success && dateVerification,
+        duration,
+        timestamp,
+        data: { 
+          entryId: entryIdToUpdate,
+          newDate,
+          dateVerified: dateVerification,
+          response: responseText
+        }
+      });
+
+      console.log(`  ✅ Entry date updated: ${entryIdToUpdate}`);
+      console.log(`  📅 Date verification: ${dateVerification ? 'PASSED' : 'FAILED'}`);
+      
+    } catch (error) {
+      this.reporter.addResult({
+        testName: "Update Contact Entry - Date",
         success: false,
         duration: 0,
         error: error instanceof Error ? error.message : String(error),
@@ -315,12 +440,14 @@ class ContactHistoryTests {
       {
         entry_type: "meeting" as const,
         subject: "Strategy meeting",
-        content: "Met at their office to discuss implementation timeline and budget."
+        content: "Met at their office to discuss implementation timeline and budget.",
+        interaction_date: "2025-05-29T09:30:00Z"
       },
       {
         entry_type: "note" as const,
         subject: "Research notes",
-        content: "Competitor analysis shows they're looking for cloud-based solutions."
+        content: "Competitor analysis shows they're looking for cloud-based solutions.",
+        interaction_date: "2025-05-30T16:45:00Z"
       },
       {
         entry_type: "task" as const,

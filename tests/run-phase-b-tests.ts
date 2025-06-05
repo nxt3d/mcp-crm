@@ -5,7 +5,7 @@ import { execSync } from "child_process";
 console.log("🚀 CRM MCP Server - Phase B: Core Tool Testing");
 console.log("=" .repeat(80));
 console.log(`📅 Started at: ${new Date().toISOString()}`);
-console.log("🧪 Running comprehensive test suite for all 13 CRM tools...\n");
+console.log("🧪 Running comprehensive test suite for all 14 CRM tools...\n");
 
 const testSuites = [
   {
@@ -104,7 +104,7 @@ console.log(`  📊 Coverage: ${((totalToolsTested / 13) * 100).toFixed(1)}%`);
 
 if (totalPassed === totalSuites) {
   console.log(`\n🎯 PHASE B STATUS: ✅ COMPLETE SUCCESS!`);
-  console.log("🚀 All 13 CRM MCP tools are fully operational!");
+  console.log("🚀 All 14 CRM MCP tools are fully operational!");
   console.log("✅ Contact management (add, list, search, update, archive) - WORKING");
   console.log("✅ Organization filtering and contact details - WORKING");
   console.log("✅ Contact history tracking (add, retrieve, recent activities) - WORKING");

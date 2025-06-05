@@ -13,7 +13,15 @@ This document provides a simple step-by-step process for adding new fields to th
 7. Build & deploy
 8. Manual database migration (production only)
 
-## Detailed Step-by-Step Process
+## Field Addition Types
+
+This guide covers two types of field additions:
+- **Contact Fields**: Adding fields to the contacts table (e.g., LinkedIn, website)
+- **Contact Entry Fields**: Adding fields to the contact_entries table (e.g., interaction_date, duration)
+
+---
+
+## PART A: Adding Fields to Contacts Table
 
 ### Step 1: Update Type Interface
 
@@ -314,3 +322,188 @@ Following these steps to add a `linkedin` field:
 9. Reset MCP server connection
 
 This process ensures the field is properly integrated throughout the entire system. 
+
+---
+
+## PART B: Adding Fields to Contact Entries Table
+
+For fields related to individual interactions/activities (like interaction_date, duration, location), follow these steps:
+
+### Step 1: Update ContactEntry Interface
+
+The ContactEntry interface may not need changes if the field maps to an existing database column (like `entry_date`). 
+
+**File:** `src/crm-server.ts` (around line 51)
+
+```typescript
+interface ContactEntry {
+  id: number;
+  contact_id: number;
+  entry_type: string; // 'call', 'email', 'meeting', 'note', 'task'
+  subject: string;
+  content: string | null;
+  entry_date: string;  // This maps to interaction_date parameter
+  created_at: string;
+}
+```
+
+### Step 2: Update addContactEntry Method
+
+**File:** `src/crm-server.ts` (around line 333)
+
+Add the new field to the method signature and handle it in the SQL:
+
+```typescript
+async addContactEntry(data: {
+  contact_id: number;
+  entry_type: string;
+  subject: string;
+  content?: string;
+  interaction_date?: string;  // NEW FIELD
+}): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const query = data.interaction_date 
+      ? `INSERT INTO contact_entries (contact_id, entry_type, subject, content, entry_date) VALUES (?, ?, ?, ?, ?)`
+      : `INSERT INTO contact_entries (contact_id, entry_type, subject, content) VALUES (?, ?, ?, ?)`;
+    
+    const params = data.interaction_date
+      ? [data.contact_id, data.entry_type, data.subject, data.content || null, data.interaction_date]
+      : [data.contact_id, data.entry_type, data.subject, data.content || null];
+
+    this.db.run(query, params, function(err: any) {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(this.lastID);
+      }
+    });
+  });
+}
+```
+
+### Step 3: Update updateContactEntry Method
+
+**File:** `src/crm-server.ts` (around line 411)
+
+```typescript
+async updateContactEntry(entryId: number, data: Partial<{
+  entry_type: string;
+  subject: string;
+  content: string;
+  interaction_date: string;  // NEW FIELD
+}>): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const fields = Object.keys(data).map(key => {
+      // Map interaction_date to entry_date for database column
+      const dbKey = key === 'interaction_date' ? 'entry_date' : key;
+      return `${dbKey} = ?`;
+    }).join(', ');
+    const values = [...Object.values(data), entryId];
+    
+    this.db.run(
+      `UPDATE contact_entries SET ${fields} WHERE id = ?`,
+      values,
+      function(err: any) {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(this.changes > 0);
+        }
+      }
+    );
+  });
+}
+```
+
+### Step 4: Update MCP Tools
+
+**4a. Update add_contact_entry tool:**
+
+```typescript
+server.tool(
+  "add_contact_entry",
+  {
+    contact_id: z.number().describe("Contact ID to add entry for"),
+    entry_type: z.enum(['call', 'email', 'meeting', 'note', 'task']).describe("Type of interaction"),
+    subject: z.string().describe("Brief subject/title of the entry"),
+    content: z.string().optional().describe("Detailed content of the entry"),
+    interaction_date: z.string().optional().describe("When the interaction occurred (ISO datetime string, e.g. '2025-05-27T10:30:00Z'). Defaults to current time if not provided.")
+  },
+  async ({ contact_id, entry_type, subject, content, interaction_date }) => {
+    // Implementation includes interaction_date
+  }
+);
+```
+
+**4b. Update update_contact_entry tool:**
+
+```typescript
+server.tool(
+  "update_contact_entry",
+  {
+    entry_id: z.number().describe("Contact entry ID to update"),
+    entry_type: z.enum(['call', 'email', 'meeting', 'note', 'task']).optional().describe("Updated type of interaction"),
+    subject: z.string().optional().describe("Updated subject/title of the entry"),
+    content: z.string().optional().describe("Updated detailed content of the entry"),
+    interaction_date: z.string().optional().describe("Updated interaction date (ISO datetime string, e.g. '2025-05-27T10:30:00Z')")
+  },
+  async ({ entry_id, entry_type, subject, content, interaction_date }) => {
+    const updateData: any = {};
+    if (entry_type !== undefined) updateData.entry_type = entry_type;
+    if (subject !== undefined) updateData.subject = subject;
+    if (content !== undefined) updateData.content = content;
+    if (interaction_date !== undefined) updateData.interaction_date = interaction_date;
+    
+    const success = await database.updateContactEntry(entry_id, updateData);
+    // ... rest of implementation
+  }
+);
+```
+
+### Step 5: No Database Migration Needed
+
+For existing contact entries tables, no migration is needed since we're reusing the existing `entry_date` column. The new `interaction_date` parameter is optional and maps to the existing database structure.
+
+### Step 6: Update Tests
+
+**File:** `tests/scenarios/contact-history.test.ts`
+
+Add tests with historical dates:
+
+```typescript
+const { result } = await this.callTool("add_contact_entry", {
+  contact_id: contactId,
+  entry_type: "meeting",
+  subject: "EthPrague Meeting",
+  content: "Initial discussion about name services",
+  interaction_date: "2025-05-27T14:30:00Z"  // Historical date
+});
+```
+
+### Step 7: Build & Test
+
+```bash
+npm run build
+npx tsx tests/run-comprehensive-tests.ts
+```
+
+### Example: Adding a Duration Field
+
+Following these steps to add a `duration` field to contact entries:
+
+1. No interface changes needed if using existing columns
+2. Add `duration?: number` to addContactEntry and updateContactEntry parameters
+3. Update SQL to handle the duration column: `ALTER TABLE contact_entries ADD COLUMN duration INTEGER`
+4. Add `duration` parameter to MCP tools
+5. Update tests with duration data
+6. Build and test
+
+---
+
+## Important Notes for Contact Entry Fields
+
+- **Existing columns** can be reused via parameter mapping (like interaction_date → entry_date)
+- **New columns** require database migration: `ALTER TABLE contact_entries ADD COLUMN field_name TYPE`
+- **Optional parameters** maintain backward compatibility
+- **ISO datetime strings** are recommended for date fields
+- **All tests must pass** before deployment 

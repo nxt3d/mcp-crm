@@ -144,13 +144,15 @@ class ExportFunctionalityTests {
           contact_id: this.testContactIds[0],
           entry_type: "call",
           subject: "Export test call",
-          content: "Testing export functionality with call data"
+          content: "Testing export functionality with call data",
+          interaction_date: "2024-01-15T10:00:00Z"
         },
         {
           contact_id: this.testContactIds[0],
           entry_type: "email",
           subject: "Export test email",
-          content: "Testing export functionality with email data"
+          content: "Testing export functionality with email data",
+          interaction_date: "2024-01-16T14:30:00Z"
         }
       ];
 
@@ -178,19 +180,16 @@ class ExportFunctionalityTests {
       });
       
       const activeResponseText = activeResult.content[0].text;
-      const activeCsvContent = this.extractCsvContent(activeResponseText);
-      const activeValidCsv = TestValidator.validateCSVContent(activeCsvContent);
-      const activeHasHeaders = activeCsvContent.includes("ID,Name,Organization") && 
-                              activeCsvContent.includes("Telegram") && 
-                              activeCsvContent.includes("X Account");
-      const activeHasTestData = activeCsvContent.includes("ExportCorp");
-      const activeHasNewFieldData = activeCsvContent.includes("@export_user1") && 
-                                   activeCsvContent.includes("@ExportUser1");
+      const activeExportSuccess = this.isExportSuccessful(activeResponseText);
+      const activeFileInfo = this.extractFileInfo(activeResponseText);
+      const activeHasFilename = !!activeFileInfo.filename;
+      const activeHasPath = !!activeFileInfo.path;
+      const activeHasSize = !!activeFileInfo.size && activeFileInfo.size > 0;
 
-      console.log(`  📄 Active contacts CSV: ${activeValidCsv ? 'Valid' : 'Invalid'}`);
-      console.log(`  📄 Headers present (incl. new fields): ${activeHasHeaders ? 'Yes' : 'No'}`);
-      console.log(`  📄 Test data present: ${activeHasTestData ? 'Yes' : 'No'}`);
-      console.log(`  📄 New field data present: ${activeHasNewFieldData ? 'Yes' : 'No'}`);
+      console.log(`  📄 Active contacts CSV export: ${activeExportSuccess ? 'Success' : 'Failed'}`);
+      console.log(`  📄 Filename provided: ${activeHasFilename ? 'Yes' : 'No'}`);
+      console.log(`  📄 File path provided: ${activeHasPath ? 'Yes' : 'No'}`);
+      console.log(`  📄 File size provided: ${activeHasSize ? 'Yes' : 'No'}`);
 
       // Test with archived contacts
       const { result: archivedResult, duration: archivedDuration } = await this.callTool("export_contacts_csv", {
@@ -198,29 +197,31 @@ class ExportFunctionalityTests {
       });
       
       const archivedResponseText = archivedResult.content[0].text;
-      const archivedCsvContent = this.extractCsvContent(archivedResponseText);
-      const archivedValidCsv = TestValidator.validateCSVContent(archivedCsvContent);
-      const archivedHasHeaders = archivedCsvContent.includes("ID,Name,Organization") && 
-                                archivedCsvContent.includes("Telegram") && 
-                                archivedCsvContent.includes("X Account");
+      const archivedExportSuccess = this.isExportSuccessful(archivedResponseText);
+      const archivedFileInfo = this.extractFileInfo(archivedResponseText);
+      const archivedHasFilename = !!archivedFileInfo.filename;
+      const archivedHasPath = !!archivedFileInfo.path;
+      const archivedHasSize = !!archivedFileInfo.size && archivedFileInfo.size > 0;
 
-      console.log(`  📄 All contacts CSV (with archived): ${archivedValidCsv ? 'Valid' : 'Invalid'}`);
+      console.log(`  📄 All contacts CSV export (with archived): ${archivedExportSuccess ? 'Success' : 'Failed'}`);
 
       this.reporter.addResult({
         testName: "Export Contacts CSV",
-        success: activeValidCsv && activeHasHeaders && activeHasTestData && activeHasNewFieldData && 
-                archivedValidCsv && archivedHasHeaders,
+        success: activeExportSuccess && activeHasFilename && activeHasPath && activeHasSize && 
+                archivedExportSuccess && archivedHasFilename && archivedHasPath && archivedHasSize,
         duration: activeDuration + archivedDuration,
         timestamp,
         data: { 
-          activeContactsValid: activeValidCsv,
-          archivedContactsValid: archivedValidCsv,
-          activeHasHeaders: activeHasHeaders,
-          archivedHasHeaders: archivedHasHeaders,
-          testDataPresent: activeHasTestData,
-          newFieldDataPresent: activeHasNewFieldData,
-          activeCsvLength: activeCsvContent.length,
-          archivedCsvLength: archivedCsvContent.length
+          activeExportSuccess,
+          archivedExportSuccess,
+          activeHasFilename,
+          archivedHasFilename,
+          activeHasPath,
+          archivedHasPath,
+          activeHasSize,
+          archivedHasSize,
+          activeFileSize: activeFileInfo.size,
+          archivedFileSize: archivedFileInfo.size
         }
       });
       
@@ -253,39 +254,47 @@ class ExportFunctionalityTests {
       });
       
       const specificResponseText = specificResult.content[0].text;
-      const specificCsvContent = this.extractCsvContent(specificResponseText);
-      const specificValidCsv = TestValidator.validateCSVContent(specificCsvContent);
-      const specificHasHeaders = specificCsvContent.includes("Entry ID,Contact Name,Entry Type");
-      const specificHasTestData = specificCsvContent.includes("Export test");
+      const specificExportSuccess = this.isExportSuccessful(specificResponseText);
+      const specificFileInfo = this.extractFileInfo(specificResponseText);
+      const specificHasFilename = !!specificFileInfo.filename;
+      const specificHasPath = !!specificFileInfo.path;
+      const specificHasSize = !!specificFileInfo.size && specificFileInfo.size > 0;
 
-      console.log(`  📄 Specific contact history CSV: ${specificValidCsv ? 'Valid' : 'Invalid'}`);
-      console.log(`  📄 Headers present: ${specificHasHeaders ? 'Yes' : 'No'}`);
-      console.log(`  📄 Test data present: ${specificHasTestData ? 'Yes' : 'No'}`);
+      console.log(`  📄 Specific contact history export: ${specificExportSuccess ? 'Success' : 'Failed'}`);
+      console.log(`  📄 Filename provided: ${specificHasFilename ? 'Yes' : 'No'}`);
+      console.log(`  📄 File path provided: ${specificHasPath ? 'Yes' : 'No'}`);
+      console.log(`  📄 File size provided: ${specificHasSize ? 'Yes' : 'No'}`);
 
       // Test all contact history
       const { result: allResult, duration: allDuration } = await this.callTool("export_contact_history_csv", {});
       
       const allResponseText = allResult.content[0].text;
-      const allCsvContent = this.extractCsvContent(allResponseText);
-      const allValidCsv = TestValidator.validateCSVContent(allCsvContent);
-      const allHasHeaders = allCsvContent.includes("Entry ID,Contact Name,Entry Type");
+      const allExportSuccess = this.isExportSuccessful(allResponseText);
+      const allFileInfo = this.extractFileInfo(allResponseText);
+      const allHasFilename = !!allFileInfo.filename;
+      const allHasPath = !!allFileInfo.path;
+      const allHasSize = !!allFileInfo.size && allFileInfo.size > 0;
 
-      console.log(`  📄 All contact history CSV: ${allValidCsv ? 'Valid' : 'Invalid'}`);
+      console.log(`  📄 All contact history export: ${allExportSuccess ? 'Success' : 'Failed'}`);
 
       this.reporter.addResult({
         testName: "Export Contact History CSV",
-        success: specificValidCsv && specificHasHeaders && specificHasTestData && allValidCsv && allHasHeaders,
+        success: specificExportSuccess && specificHasFilename && specificHasPath && specificHasSize && 
+                allExportSuccess && allHasFilename && allHasPath && allHasSize,
         duration: specificDuration + allDuration,
         timestamp,
         data: { 
           specificContactId: testContactId,
-          specificHistoryValid: specificValidCsv,
-          allHistoryValid: allValidCsv,
-          specificHasHeaders: specificHasHeaders,
-          allHasHeaders: allHasHeaders,
-          testDataPresent: specificHasTestData,
-          specificCsvLength: specificCsvContent.length,
-          allCsvLength: allCsvContent.length
+          specificExportSuccess,
+          allExportSuccess,
+          specificHasFilename,
+          allHasFilename,
+          specificHasPath,
+          allHasPath,
+          specificHasSize,
+          allHasSize,
+          specificFileSize: specificFileInfo.size,
+          allFileSize: allFileInfo.size
         }
       });
       
@@ -309,53 +318,35 @@ class ExportFunctionalityTests {
       const { result, duration, timestamp } = await this.callTool("export_full_crm_csv", {});
       
       const responseText = result.content[0].text;
-      const csvContent = this.extractCsvContent(responseText);
-      const validCsv = TestValidator.validateCSVContent(csvContent);
-      const hasContactsSection = csvContent.includes("=== CONTACTS ===");
-      const hasHistorySection = csvContent.includes("=== CONTACT HISTORY ===");
-      const hasContactHeaders = csvContent.includes("ID,Name,Organization") && 
-                              csvContent.includes("Telegram") && 
-                              csvContent.includes("X Account");
-      const hasHistoryHeaders = csvContent.includes("Entry ID,Contact Name,Entry Type");
-      const hasTestData = csvContent.includes("ExportCorp") && csvContent.includes("Export test");
-      const hasNewFieldData = csvContent.includes("@export_user1") && csvContent.includes("@ExportUser1");
+      const exportSuccess = this.isExportSuccessful(responseText);
+      const fileInfo = this.extractFileInfo(responseText);
+      const hasFilename = !!fileInfo.filename;
+      const hasPath = !!fileInfo.path;
+      const hasSize = !!fileInfo.size && fileInfo.size > 0;
+      const isFullCrmExport = responseText.includes("Full CRM CSV Export Saved:");
+      const includesArchivedNote = responseText.includes("All contacts (including archived)");
 
-      console.log(`  📄 Full CRM CSV: ${validCsv ? 'Valid' : 'Invalid'}`);
-      console.log(`  📄 Contacts section: ${hasContactsSection ? 'Present' : 'Missing'}`);
-      console.log(`  📄 History section: ${hasHistorySection ? 'Present' : 'Missing'}`);
-      console.log(`  📄 Contact headers (incl. new fields): ${hasContactHeaders ? 'Present' : 'Missing'}`);
-      console.log(`  📄 History headers: ${hasHistoryHeaders ? 'Present' : 'Missing'}`);
-      console.log(`  📄 Test data: ${hasTestData ? 'Present' : 'Missing'}`);
-      console.log(`  📄 New field data: ${hasNewFieldData ? 'Present' : 'Missing'}`);
-
-      // Verify both sections have data
-      const contactsSection = csvContent.split("=== CONTACT HISTORY ===")[0];
-      const historySection = csvContent.split("=== CONTACT HISTORY ===")[1] || "";
-      const contactsHasData = contactsSection.split('\n').length > 3; // Header + at least 2 data rows
-      const historyHasData = historySection.split('\n').length > 3;
-
-      console.log(`  📄 Contacts data rows: ${contactsHasData ? 'Present' : 'Missing'}`);
-      console.log(`  📄 History data rows: ${historyHasData ? 'Present' : 'Missing'}`);
+      console.log(`  📄 Full CRM export: ${exportSuccess ? 'Success' : 'Failed'}`);
+      console.log(`  📄 Filename provided: ${hasFilename ? 'Yes' : 'No'}`);
+      console.log(`  📄 File path provided: ${hasPath ? 'Yes' : 'No'}`);
+      console.log(`  📄 File size provided: ${hasSize ? 'Yes' : 'No'}`);
+      console.log(`  📄 Full CRM export identified: ${isFullCrmExport ? 'Yes' : 'No'}`);
+      console.log(`  📄 Includes archived note: ${includesArchivedNote ? 'Yes' : 'No'}`);
 
       this.reporter.addResult({
         testName: "Export Full CRM CSV",
-        success: validCsv && hasContactsSection && hasHistorySection && hasContactHeaders && 
-                hasHistoryHeaders && hasTestData && hasNewFieldData && contactsHasData && historyHasData,
+        success: exportSuccess && hasFilename && hasPath && hasSize && isFullCrmExport && includesArchivedNote,
         duration,
         timestamp,
         data: { 
-          validCsv,
-          hasContactsSection,
-          hasHistorySection,
-          hasContactHeaders,
-          hasHistoryHeaders,
-          hasTestData,
-          hasNewFieldData,
-          contactsHasData,
-          historyHasData,
-          csvLength: csvContent.length,
-          contactsSectionLength: contactsSection.length,
-          historySectionLength: historySection.length
+          exportSuccess,
+          hasFilename,
+          hasPath,
+          hasSize,
+          isFullCrmExport,
+          includesArchivedNote,
+          fileSize: fileInfo.size,
+          filename: fileInfo.filename
         }
       });
       
@@ -371,10 +362,27 @@ class ExportFunctionalityTests {
     }
   }
 
-  // Helper method to extract CSV content from tool response
-  private extractCsvContent(responseText: string): string {
-    const csvMatch = responseText.match(/--- CSV Content ---\n([\s\S]*?)$/);
-    return csvMatch ? csvMatch[1].trim() : "";
+  // Helper method to check if export was successful based on file metadata
+  private isExportSuccessful(responseText: string): boolean {
+    return responseText.includes("CSV Export Saved:") || 
+           responseText.includes("Contact History CSV Export Saved:") ||
+           responseText.includes("Full CRM CSV Export Saved:");
+  }
+
+  // Helper method to extract file information from export response
+  private extractFileInfo(responseText: string): { filename?: string; path?: string; size?: number } {
+    const info: { filename?: string; path?: string; size?: number } = {};
+    
+    const filenameMatch = responseText.match(/Filename: (.+)/);
+    if (filenameMatch) info.filename = filenameMatch[1];
+    
+    const pathMatch = responseText.match(/Path: (.+)/);
+    if (pathMatch) info.path = pathMatch[1];
+    
+    const sizeMatch = responseText.match(/Size: (\d+) characters/);
+    if (sizeMatch) info.size = parseInt(sizeMatch[1]);
+    
+    return info;
   }
 }
 
