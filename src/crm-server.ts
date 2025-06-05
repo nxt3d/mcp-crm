@@ -471,10 +471,31 @@ class CRMDatabase {
   async exportContacts(includeArchived: boolean = false): Promise<string> {
     const contacts = await this.listContacts(includeArchived);
     
-    const headers = ['ID', 'Name', 'Organization', 'Job Title', 'Email', 'Phone', 'Telegram', 'X Account', 'Notes', 'Archived', 'Created', 'Updated'];
+    const headers = ['ID', 'Name', 'Organization', 'Job Title', 'Email', 'Phone', 'Telegram', 'X Account', 'Notes', 'Archived', 'Created', 'Updated', 'Active Todos', 'Completed Todos'];
     const csvRows = [headers.join(',')];
     
-    contacts.forEach(contact => {
+    for (const contact of contacts) {
+      // Get todos for this contact
+      const activeTodos = await this.getTodos({ 
+        contact_id: contact.id, 
+        include_completed: false 
+      });
+      const completedTodos = await this.getTodos({ 
+        contact_id: contact.id, 
+        include_completed: true 
+      }).then(todos => todos.filter(todo => todo.is_completed));
+      
+      // Format todos as compact strings
+      const activeTodosString = activeTodos.map(todo => {
+        const dueDate = todo.target_date ? ` (due: ${todo.target_date.slice(0, 10)})` : '';
+        return `${todo.todo_text}${dueDate}`;
+      }).join(' | ');
+      
+      const completedTodosString = completedTodos.map(todo => {
+        const dueDate = todo.target_date ? ` (was due: ${todo.target_date.slice(0, 10)})` : '';
+        return `${todo.todo_text}${dueDate}`;
+      }).join(' | ');
+      
       const row = [
         contact.id.toString(),
         `"${contact.name.replace(/"/g, '""')}"`,
@@ -487,84 +508,115 @@ class CRMDatabase {
         `"${(contact.notes || '').replace(/"/g, '""')}"`,
         contact.is_archived ? 'Yes' : 'No',
         contact.created_at,
-        contact.updated_at
+        contact.updated_at,
+        `"${activeTodosString.replace(/"/g, '""')}"`,
+        `"${completedTodosString.replace(/"/g, '""')}"`
       ];
       csvRows.push(row.join(','));
-    });
+    }
     
     return csvRows.join('\n');
   }
 
-  async exportContactHistory(contactId?: number): Promise<string> {
-    return new Promise((resolve, reject) => {
-      if (contactId) {
-        // First get the contact details for header information
-        this.db.get(
-          'SELECT * FROM contacts WHERE id = ?',
-          [contactId],
-          (err: any, contact: Contact) => {
-            if (err) {
-              reject(err);
-              return;
-            }
+    async exportContactHistory(contactId?: number): Promise<string> {
+    if (contactId) {
+      try {
+        // Get contact details
+        const contact = await this.getContactById(contactId);
+        if (!contact) {
+          throw new Error(`Contact with ID ${contactId} not found`);
+        }
 
-            if (!contact) {
-              reject(new Error(`Contact with ID ${contactId} not found`));
-              return;
-            }
+        // Get todos for this contact
+        const activeTodos = await this.getTodos({ 
+          contact_id: contactId, 
+          include_completed: false 
+        });
+        const completedTodos = await this.getTodos({ 
+          contact_id: contactId, 
+          include_completed: true 
+        }).then(todos => todos.filter(todo => todo.is_completed));
 
-            // Now get the contact history
-            const query = `SELECT ce.*, c.name as contact_name FROM contact_entries ce 
-                          JOIN contacts c ON ce.contact_id = c.id 
-                          WHERE ce.contact_id = ? ORDER BY ce.entry_date ASC`;
-            
-            this.db.all(query, [contactId], (err: any, rows: Array<ContactEntry & { contact_name: string }>) => {
-              if (err) {
-                reject(err);
-                return;
-              }
+        // Get contact history
+        const history = await this.getContactHistory(contactId);
 
-              // Build CSV with contact info at top
-              const csvRows = [];
-              
-              // Contact Information Header
-              csvRows.push('=== CONTACT INFORMATION ===');
-              csvRows.push(`Name,"${contact.name.replace(/"/g, '""')}"`);
-              csvRows.push(`Organization,"${(contact.organization || '').replace(/"/g, '""')}"`);
-              csvRows.push(`Job Title,"${(contact.job_title || '').replace(/"/g, '""')}"`);
-              csvRows.push(`Email,"${(contact.email || '').replace(/"/g, '""')}"`);
-              csvRows.push(`Phone,"${(contact.phone || '').replace(/"/g, '""')}"`);
-              csvRows.push(`Telegram,"${(contact.telegram || '').replace(/"/g, '""')}"`);
-              csvRows.push(`X Account,"${(contact.x_account || '').replace(/"/g, '""')}"`);
-              csvRows.push(`Notes,"${(contact.notes || '').replace(/"/g, '""')}"`);
-              csvRows.push(`Created,${contact.created_at}`);
-              csvRows.push(`Updated,${contact.updated_at}`);
-              csvRows.push('');
-              
-              // Contact History Header
-              csvRows.push('=== CONTACT HISTORY ===');
-              const headers = ['Entry Date', 'Entry ID', 'Contact Name', 'Entry Type', 'Subject', 'Content', 'Created'];
-              csvRows.push(headers.join(','));
-              
-              rows.forEach(entry => {
-                const row = [
-                  entry.entry_date,
-                  entry.id.toString(),
-                  `"${entry.contact_name.replace(/"/g, '""')}"`,
-                  `"${entry.entry_type.replace(/"/g, '""')}"`,
-                  `"${entry.subject.replace(/"/g, '""')}"`,
-                  `"${(entry.content || '').replace(/"/g, '""')}"`,
-                  entry.created_at
-                ];
-                csvRows.push(row.join(','));
-              });
-              
-              resolve(csvRows.join('\n'));
-            });
-          }
-        );
-      } else {
-        // Export all contact history without individual contact headers
+        // Build CSV with contact info at top
+        const csvRows = [];
+        
+        // Contact Information Header
+        csvRows.push('=== CONTACT INFORMATION ===');
+        csvRows.push(`Name,"${contact.name.replace(/"/g, '""')}"`);
+        csvRows.push(`Organization,"${(contact.organization || '').replace(/"/g, '""')}"`);
+        csvRows.push(`Job Title,"${(contact.job_title || '').replace(/"/g, '""')}"`);
+        csvRows.push(`Email,"${(contact.email || '').replace(/"/g, '""')}"`);
+        csvRows.push(`Phone,"${(contact.phone || '').replace(/"/g, '""')}"`);
+        csvRows.push(`Telegram,"${(contact.telegram || '').replace(/"/g, '""')}"`);
+        csvRows.push(`X Account,"${(contact.x_account || '').replace(/"/g, '""')}"`);
+        csvRows.push(`Notes,"${(contact.notes || '').replace(/"/g, '""')}"`);
+        csvRows.push(`Created,${contact.created_at}`);
+        csvRows.push(`Updated,${contact.updated_at}`);
+        csvRows.push(`Active Todos,${activeTodos.length}`);
+        csvRows.push(`Completed Todos,${completedTodos.length}`);
+        csvRows.push('');
+        
+        // Add todos section
+        if (activeTodos.length > 0 || completedTodos.length > 0) {
+          csvRows.push('=== TODOS ===');
+          csvRows.push('Todo ID,Status,Todo Text,Target Date,Created,Updated');
+          
+          // Add active todos
+          activeTodos.forEach(todo => {
+            const row = [
+              todo.id.toString(),
+              'Active',
+              `"${todo.todo_text.replace(/"/g, '""')}"`,
+              todo.target_date || '',
+              todo.created_at,
+              todo.updated_at
+            ];
+            csvRows.push(row.join(','));
+          });
+          
+          // Add completed todos
+          completedTodos.forEach(todo => {
+            const row = [
+              todo.id.toString(),
+              'Completed',
+              `"${todo.todo_text.replace(/"/g, '""')}"`,
+              todo.target_date || '',
+              todo.created_at,
+              todo.updated_at
+            ];
+            csvRows.push(row.join(','));
+          });
+          
+          csvRows.push('');
+        }
+        
+        // Contact History Header
+        csvRows.push('=== CONTACT HISTORY ===');
+        const headers = ['Entry Date', 'Entry ID', 'Entry Type', 'Subject', 'Content', 'Created'];
+        csvRows.push(headers.join(','));
+        
+        history.forEach(entry => {
+          const row = [
+            entry.entry_date,
+            entry.id.toString(),
+            `"${entry.entry_type.replace(/"/g, '""')}"`,
+            `"${entry.subject.replace(/"/g, '""')}"`,
+            `"${(entry.content || '').replace(/"/g, '""')}"`,
+            entry.created_at
+          ];
+          csvRows.push(row.join(','));
+        });
+        
+        return csvRows.join('\n');
+      } catch (error) {
+        throw error;
+      }
+    } else {
+      // Export all contact history without individual contact headers
+      return new Promise((resolve, reject) => {
         const query = `SELECT ce.*, c.name as contact_name FROM contact_entries ce 
                       JOIN contacts c ON ce.contact_id = c.id 
                       ORDER BY ce.entry_date ASC`;
@@ -593,8 +645,8 @@ class CRMDatabase {
           
           resolve(csvRows.join('\n'));
         });
-      }
-    });
+      });
+    }
   }
 
   async exportContactsWithConcatenatedHistory(includeArchived: boolean = false): Promise<string> {
@@ -603,19 +655,40 @@ class CRMDatabase {
         // Get all contacts
         const contacts = await this.listContacts(includeArchived);
         
-        // For each contact, get their history and concatenate it
-        const headers = ['ID', 'Name', 'Organization', 'Job Title', 'Email', 'Phone', 'Telegram', 'X Account', 'Notes', 'Archived', 'Created', 'Updated', 'History'];
+        // For each contact, get their history and todos and concatenate them
+        const headers = ['ID', 'Name', 'Organization', 'Job Title', 'Email', 'Phone', 'Telegram', 'X Account', 'Notes', 'Archived', 'Created', 'Updated', 'History', 'Active Todos', 'Completed Todos'];
         const csvRows = [headers.join(',')];
         
         for (const contact of contacts) {
           // Get contact history
           const history = await this.getContactHistory(contact.id);
           
+          // Get todos for this contact
+          const activeTodos = await this.getTodos({ 
+            contact_id: contact.id, 
+            include_completed: false 
+          });
+          const completedTodos = await this.getTodos({ 
+            contact_id: contact.id, 
+            include_completed: true 
+          }).then(todos => todos.filter(todo => todo.is_completed));
+          
           // Concatenate history entries into a single string
           const historyString = history.map(entry => {
             const entryText = `${entry.entry_date} [${entry.entry_type}] ${entry.subject}${entry.content ? ': ' + entry.content : ''}`;
             return entryText.replace(/"/g, '""'); // Escape quotes in history
           }).join(' / ');
+          
+          // Concatenate todos into compact strings
+          const activeTodosString = activeTodos.map(todo => {
+            const dueDate = todo.target_date ? ` (due: ${todo.target_date.slice(0, 10)})` : '';
+            return `${todo.todo_text}${dueDate}`;
+          }).join(' | ');
+          
+          const completedTodosString = completedTodos.map(todo => {
+            const dueDate = todo.target_date ? ` (was due: ${todo.target_date.slice(0, 10)})` : '';
+            return `${todo.todo_text}${dueDate}`;
+          }).join(' | ');
           
           const row = [
             contact.id.toString(),
@@ -630,7 +703,9 @@ class CRMDatabase {
             contact.is_archived ? 'Yes' : 'No',
             contact.created_at,
             contact.updated_at,
-            `"${historyString}"`
+            `"${historyString}"`,
+            `"${activeTodosString.replace(/"/g, '""')}"`,
+            `"${completedTodosString.replace(/"/g, '""')}"`
           ];
           csvRows.push(row.join(','));
         }
@@ -785,6 +860,33 @@ class CRMDatabase {
         }
       });
     });
+  }
+
+  async exportTodos(): Promise<string> {
+    try {
+      const todos = await this.getTodos({ include_completed: true });
+      
+      const headers = ['Todo ID', 'Contact ID', 'Contact Name', 'Todo Text', 'Target Date', 'Status', 'Created', 'Updated'];
+      const csvRows = [headers.join(',')];
+      
+      todos.forEach(todo => {
+        const row = [
+          todo.id.toString(),
+          todo.contact_id.toString(),
+          `"${todo.contact_name.replace(/"/g, '""')}"`,
+          `"${todo.todo_text.replace(/"/g, '""')}"`,
+          todo.target_date || '',
+          todo.is_completed ? 'Completed' : 'Active',
+          todo.created_at,
+          todo.updated_at
+        ];
+        csvRows.push(row.join(','));
+      });
+      
+      return csvRows.join('\n');
+    } catch (error) {
+      throw error;
+    }
   }
 
   async close(): Promise<void> {
@@ -1753,6 +1855,44 @@ server.tool(
           {
             type: "text",
             text: `❌ Failed to get todos: ${error instanceof Error ? error.message : String(error)}`
+          }
+        ]
+      };
+    }
+  }
+);
+
+// TOOL 18: Export Todos CSV
+server.tool(
+  "export_todos_csv",
+  {},
+  async () => {
+    try {
+      const csvContent = await database.exportTodos();
+      const filename = `todos_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      
+      // Ensure exports directory exists
+      const exportsDir = join(__dirname, "..", "exports");
+      await mkdir(exportsDir, { recursive: true });
+      
+      // Save CSV file
+      const filePath = join(exportsDir, filename);
+      await writeFile(filePath, csvContent, 'utf-8');
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `📁 Todos CSV Export Saved:\n\nFilename: ${filename}\nPath: ${filePath}\nIncludes: All todos (active and completed)\nSize: ${csvContent.length} characters`
+          }
+        ]
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Failed to export todos: ${error instanceof Error ? error.message : String(error)}`
           }
         ]
       };

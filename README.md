@@ -4,7 +4,7 @@ A production-ready **Model Context Protocol (MCP) server** for Customer Relation
 
 ## 🚀 Features
 
-### Core CRM Tools (17 Total)
+### Core CRM Tools (18 Total)
 - **Contact Management**: Add, update, search, list, and archive contacts
 - **Organization Management**: Filter contacts by organization
 - **Contact History**: Track, update, and manage interactions, calls, emails, meetings, and notes
@@ -273,9 +273,11 @@ Archives are stored in `data/archives/` with descriptive names:
 ### Data Export
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `export_contacts_csv` | Export contacts to CSV | `include_archived` (optional) |
-| `export_contact_history_csv` | Export contact history to CSV | `contact_id` (optional, exports all if not specified) |
-| `export_full_crm_csv` | Export complete CRM data | None |
+| `export_contacts_csv` | Export contacts to CSV with todo summaries | `include_archived` (optional) |
+| `export_contact_history_csv` | Export contact history to CSV with todo details | `contact_id` (optional, exports all if not specified) |
+| `export_full_crm_csv` | Export complete CRM data with todo columns | None |
+| `export_todos_csv` | Export all todos to CSV | None |
+
 
 ## 📊 Usage Examples
 
@@ -353,6 +355,15 @@ Archives are stored in `data/archives/` with descriptive names:
     "contact_id": 1,
     "include_completed": true
   }
+}
+```
+
+### Exporting Todos
+```typescript
+// Export all todos to CSV
+{
+  "name": "export_todos_csv",
+  "arguments": {}
 }
 ```
 

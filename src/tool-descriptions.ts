@@ -148,6 +148,14 @@ export const toolDescriptions = {
     random_string: `Dummy parameter for no-parameter tools`
   },
 
+  export_todos_csv: {
+    description: `Export all todos (active and completed) to CSV format for task management and analysis`,
+    
+    random_string: `Dummy parameter for no-parameter tools`
+  },
+
+
+
   add_todo: {
     description: `Add a todo item for a specific contact with optional target date`,
     
