@@ -191,7 +191,21 @@ export const toolDescriptions = {
     - "Show todos for [contact name]"
     - "What todos are due soon?"
     
-    This tool helps manage and track action items and tasks associated with contacts in the CRM system.`,
+    This tool helps manage and track action items and tasks associated with contacts in the CRM system.
+    
+    TIMELINE CHART SPECIFICATIONS:
+    When a user requests a timeline chart for todos, create a Gantt chart with these requirements:
+    - Show each active todo as a horizontal bar
+    - Start each bar from "now" (current date) and extend until the todo's target completion date
+    - Maximum duration: 2 weeks (14 days)
+    - If a todo's target date is more than 2 weeks away, cut off the bar at 2 weeks and add a label indicating the actual due date
+    - Each bar should span the full length from start to target date (or 2-week cutoff)
+    - Include clear labels on the left side showing contact names and brief task descriptions for easy reading
+    - Use color coding or visual indicators to show urgency (overdue, due soon, normal)
+    - Display dates in MM/DD format for readability
+    - DO NOT stack weeks on top of each other - create a running day-by-day chart that flows horizontally
+    - Each todo should have its own section/row to avoid visual clutter and overlap
+    - The timeline should show a continuous progression of days from left to right`,
     
     contact_id: `Filter by specific contact ID to show todos for a particular contact`,
     
